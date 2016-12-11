@@ -24,11 +24,12 @@ def create_perceptron(weights, biases):
 
 
 # create objective functional
-# return objective and placeholder for target (correct answers)
+# return objectives for points and batches and placeholder for target (correct answers)
 def create_mse_cost(model, out_size):
     y = tf.placeholder(tf.float32, [None, out_size])
-    return tf.reduce_sum(tf.pow(tf.subtract(model, y), 2)), y
-    #return tf.nn.l2_loss(tf.subtract(model, y)), y
+    batch_cost = tf.reduce_sum(tf.sqrt(tf.reduce_sum(tf.pow(tf.subtract(model, y), 2), 1)))
+    point_cost = tf.reduce_sum(tf.pow(tf.subtract(model, y), 2))
+    return point_cost, batch_cost, y
 
 
 # generate `count` samples
@@ -53,7 +54,7 @@ def print_predictions(sess, model, x):
 # do all stuff
 def main():
     # nn topology, first is input, last in output
-    sizes = [3, 7, 5]
+    sizes = [3, 100, 100, 5]
     # step size
     learning_rate = 0.01
     # number of epochs
@@ -65,9 +66,9 @@ def main():
     # create model based on matrixes
     model, x = create_perceptron(weights, biases)
     # create objective
-    cost, y = create_mse_cost(model, sizes[-1])
+    point_cost, batch_cost, y = create_mse_cost(model, sizes[-1])
     # create optimizer
-    optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(cost)
+    optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(point_cost)
     # main work
     init = tf.global_variables_initializer()
     with tf.Session() as sess:
@@ -82,7 +83,7 @@ def main():
             # generate next batch
             batch_x, batch_y = generate_batch(batch_size)
             # run optimization
-            _, c = sess.run([optimizer, cost], feed_dict = {x: batch_x, y: batch_y})
+            _, c = sess.run([optimizer, batch_cost], feed_dict = {x: batch_x, y: batch_y})
             # debug print
             if epoch % 100 == 0:
                 # loss
