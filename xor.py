@@ -54,11 +54,11 @@ def print_predictions(sess, model, x):
 # do all stuff
 def main():
     # nn topology, first is input, last in output
-    sizes = [3, 100, 100, 5]
+    sizes = [3, 2, 5]
     # step size
     learning_rate = 0.01
     # number of epochs
-    epochs = 1000
+    eps = 1e-3
     # number of samples in each epoch (because we have the same data all the time we can set it to 1)
     batch_size = 1
     # create matrixes
@@ -78,25 +78,29 @@ def main():
         print generate_batch(1)
         # check what we see on random data
         print sess.run(model, feed_dict = {x: generate_batch(1)[0]})
-        # iterate epochs
-        for epoch in xrange(epochs):
+        # iterate while error > eps
+        epoch = 0
+        while True:
             # generate next batch
             batch_x, batch_y = generate_batch(batch_size)
             # run optimization
             _, c = sess.run([optimizer, batch_cost], feed_dict = {x: batch_x, y: batch_y})
             # debug print
-            if epoch % 100 == 0:
+            if c < eps or epoch % 1000 == 0:
                 # loss
-                print c
+                print c, epoch
                 # print predictions
                 print_predictions(sess, model, x)
-                #for i in xrange(len(sizes) - 1):
-                #    print sess.run(weights[i])
-                #    print sess.run(biases[i])
                 print
-        # print final predictions
-        print_predictions(sess, model, x)
+            if c < eps:
+                break
+            epoch += 1
+        for i in xrange(len(sizes) - 1):
+            print sess.run(weights[i])
+            print sess.run(biases[i])
 
+
+# entry point
 if __name__ == "__main__":
     main()
 
