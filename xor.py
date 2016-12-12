@@ -54,7 +54,7 @@ def print_predictions(sess, model, x):
 # do all stuff
 def main():
     # nn topology, first is input, last in output
-    sizes = [3, 2, 5]
+    sizes = [3, 5, 5]
     # step size
     learning_rate = 0.01
     # number of epochs
