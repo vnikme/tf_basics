@@ -88,14 +88,14 @@ def read_data(path):
 # do all stuff
 def main():
     # nn topology, first is input, last in output
-    n = 10
-    sizes = [2 * n, n, n, n, n + 1]
+    n = 20
+    sizes = [2 * n, 5 * n, n + 1]
     # step size
     learning_rate = 0.001
     # number of epochs
     eps = 1e-5
     # number of samples in each epoch (because we have the same data all the time we can set it to 1)
-    batch_size = 1000
+    batch_size = 1000000
     # create matrixes
     weights, biases = create_layers(sizes)
     # create model based on matrixes
@@ -110,9 +110,9 @@ def main():
         # run initialization (needed for tensorflow)
         sess.run(init)
         # just check we have correct learning data
-        print generate_batch(batch_size, n)
+        # print generate_batch(batch_size, n)
         # check what we see on random data
-        print sess.run(model, feed_dict = {x: generate_batch(batch_size, n)[0]})
+        # print sess.run(model, feed_dict = {x: generate_batch(batch_size, n)[0]})
         # iterate while error > eps
         epoch = 0
         while True:
@@ -121,7 +121,7 @@ def main():
             # run optimization
             _, c = sess.run([optimizer, cost], feed_dict = {x: batch_x, y: batch_y})
             # debug print
-            if c < eps or epoch % 1000 == 0:
+            if c < eps or epoch % 10 == 0:
                 # print predictions
                 batch_x, batch_y = generate_batch(batch_size, n)
                 print_predictions(sess, model, x, batch_x, batch_y)
