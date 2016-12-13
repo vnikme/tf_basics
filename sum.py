@@ -60,8 +60,9 @@ def generate_batch(count, n):
         a = int(random.random() * limit)
         b = int(random.random() * limit)
         c = a + b
+        d = a * b
         x.append(num2bits(a, n) + num2bits(b, n))
-        y.append(num2bits(c, n + 1))
+        y.append(num2bits(c, n + 1) + num2bits(d, 2 * n))
     return x, y
 
 
@@ -73,9 +74,11 @@ def print_predictions(sess, model, x, batch_x, batch_y):
     for i in xrange(len(pred)):
         a, b = bits2num(batch_x[i][:n]), bits2num(batch_x[i][n:])
         c = map(lambda t: 1 if t > 0.5 else 0, pred[i])
+        c, d = c[:n + 1], c[n + 1:]
         c = bits2num(c)
-        if a + b != c:
-            print "%d\t%d\t%d\t%d" % (a, b, a + b, c)
+        d = bits2num(d)
+        if a + b != c or a * b != d:
+            print "%d\t%d\t%d\t%d\t%d\t%d" % (a, b, a + b, c, a * b, d)
             errors += 1
     print errors
 
@@ -88,14 +91,14 @@ def read_data(path):
 # do all stuff
 def main():
     # nn topology, first is input, last in output
-    n = 20
-    sizes = [2 * n, 5 * n, n + 1]
+    n = 10
+    sizes = [2 * n, 10 * n, 10 * n, 3 * n + 1]
     # step size
     learning_rate = 0.001
     # number of epochs
     eps = 1e-5
     # number of samples in each epoch (because we have the same data all the time we can set it to 1)
-    batch_size = 1000000
+    batch_size = 10
     # create matrixes
     weights, biases = create_layers(sizes)
     # create model based on matrixes
@@ -121,7 +124,7 @@ def main():
             # run optimization
             _, c = sess.run([optimizer, cost], feed_dict = {x: batch_x, y: batch_y})
             # debug print
-            if c < eps or epoch % 10 == 0:
+            if c < eps or epoch % 10000 == 0:
                 # print predictions
                 batch_x, batch_y = generate_batch(batch_size, n)
                 print_predictions(sess, model, x, batch_x, batch_y)
