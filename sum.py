@@ -90,7 +90,7 @@ def read_data(path):
 
 # do all stuff
 def main():
-    # nn topology, first is input, last in output
+    # nn topology, first is input, last is output
     n = 10
     sizes = [2 * n, 10 * n, 10 * n, 3 * n + 1]
     # step size
@@ -98,7 +98,7 @@ def main():
     # number of epochs
     eps = 1e-5
     # number of samples in each epoch (because we have the same data all the time we can set it to 1)
-    batch_size = 10
+    batch_size = 100
     # create matrixes
     weights, biases = create_layers(sizes)
     # create model based on matrixes
@@ -124,7 +124,7 @@ def main():
             # run optimization
             _, c = sess.run([optimizer, cost], feed_dict = {x: batch_x, y: batch_y})
             # debug print
-            if c < eps or epoch % 10000 == 0:
+            if c < eps or epoch % 1000 == 0:
                 # print predictions
                 batch_x, batch_y = generate_batch(batch_size, n)
                 print_predictions(sess, model, x, batch_x, batch_y)
