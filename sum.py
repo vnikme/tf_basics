@@ -1,7 +1,7 @@
 #!/usr/bin/python
 
 import tensorflow as tf
-import random
+import random, sys
 
 
 def bits2num(bits):
@@ -94,11 +94,11 @@ def main():
     n = 10
     sizes = [2 * n, 10 * n, 10 * n, 3 * n + 1]
     # step size
-    learning_rate = 0.001
+    learning_rate = float(sys.argv[3])
     # number of epochs
     eps = 1e-5
     # number of samples in each epoch (because we have the same data all the time we can set it to 1)
-    batch_size = 100
+    batch_size, print_freq = int(sys.argv[1]), int(sys.argv[2])
     # create matrixes
     weights, biases = create_layers(sizes)
     # create model based on matrixes
@@ -106,7 +106,8 @@ def main():
     # create objective
     cost, y = create_cost(model, sizes[-1])
     # create optimizer
-    optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(cost)
+    #optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(cost)
+    optimizer = tf.train.AdadeltaOptimizer(learning_rate = learning_rate).minimize(cost)
     # main work
     init = tf.global_variables_initializer()
     with tf.Session() as sess:
@@ -124,12 +125,12 @@ def main():
             # run optimization
             _, c = sess.run([optimizer, cost], feed_dict = {x: batch_x, y: batch_y})
             # debug print
-            if c < eps or epoch % 1000 == 0:
+            if c < eps or epoch % print_freq == 0:
                 # print predictions
                 batch_x, batch_y = generate_batch(batch_size, n)
                 print_predictions(sess, model, x, batch_x, batch_y)
                 # loss
-                print c, epoch
+                print c / batch_size, epoch * batch_size
                 print
             if c < eps:
                 break
