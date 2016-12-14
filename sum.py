@@ -51,13 +51,31 @@ def create_perceptron(n, m, weights, biases, sum_output_weights, sum_output_bias
     return result_sum, result_mul, a, b
 
 
+# weighted cross-entropy
+def weighted_crossentropy_cost(model, target):
+    shape = target.get_shape()
+    shape_idx = range(len(shape))
+    model = tf.transpose(model, [shape_idx[-1]] + shape_idx[:-1])
+    target = tf.transpose(target, [shape_idx[-1]] + shape_idx[:-1])
+    n = shape[-1]
+    res = None
+    mul = 1
+    for i in xrange(n):
+        t = tf.nn.sigmoid_cross_entropy_with_logits(model, target)
+        t = tf.scalar_mul(mul, t)
+        if res == None:
+            res = t
+        else:
+            res = tf.add(res, t)
+    return res
+
+
 # create objective functional
 # return objective and placeholders for targets (correct answers)
 def create_cost(model_sum, model_mul, n, m):
     s = tf.placeholder(tf.float32, [None, max(n, m) + 1])
     p = tf.placeholder(tf.float32, [None, n + m])
-    cost = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(tf.concat(1, [model_sum, model_mul]), tf.concat(1, [s, p])))
-    return cost, s, p
+    return tf.reduce_sum(weighted_crossentropy_cost(model_sum, s)) + tf.reduce_sum(weighted_crossentropy_cost(model_mul, p)), s, p
 
 
 # generate `count` samples
@@ -83,8 +101,8 @@ def print_predictions(sess, model_sum, model_mul, a, b, batch_a, batch_b, n, m):
     errors = 0
     for i in xrange(len(batch_a)):
         a, b = bits2num(batch_a[i]), bits2num(batch_b[i])
-        c = map(lambda t: 1 if t > 0.5 else 0, pred_sum[i])
-        d = map(lambda t: 1 if t > 0.5 else 0, pred_mul[i])
+        c = map(lambda t: 1 if t >= 0.0 else 0, pred_sum[i])
+        d = map(lambda t: 1 if t >= 0.0 else 0, pred_mul[i])
         c = bits2num(c)
         d = bits2num(d)
         if a + b != c or a * b != d:
@@ -107,7 +125,7 @@ def main():
     # step size
     learning_rate = float(sys.argv[3])
     # threshold to stop
-    eps = 1e-5
+    eps = 1e-3
     # number of samples in each epoch (because we have the same data all the time we can set it to 1)
     batch_size, print_freq = int(sys.argv[4]), int(sys.argv[5])
     # create matrixes
@@ -139,7 +157,7 @@ def main():
                 # loss
                 print c / batch_size, epoch * batch_size
                 print
-            if c < eps:
+            if c / batch_size < eps:
                 break
             epoch += 1
         for i in xrange(len(sizes) - 1):
