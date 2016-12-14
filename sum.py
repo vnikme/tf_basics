@@ -23,58 +23,68 @@ def num2bits(n, k):
 
 
 # initialize layer matrixes with random numbers
-def create_layers(sizes):
+def create_layers(n, m, sizes):
     weights, biases = [], []
-    for i in xrange(1, len(sizes)):
-        weights.append(tf.Variable(tf.random_normal([sizes[i - 1], sizes[i]])))
-        biases.append(tf.Variable(tf.random_normal([sizes[i]])))
-    return weights, biases
+    prev_size = n + m
+    for size in sizes:
+        weights.append(tf.Variable(tf.random_normal([prev_size, size])))
+        biases.append(tf.Variable(tf.random_normal([size])))
+        prev_size = size
+    sum_output_weights = tf.Variable(tf.random_normal([prev_size, max(n, m) + 1]))
+    sum_output_biases = tf.Variable(tf.random_normal([max(n, m) + 1]))
+    mul_output_weights = tf.Variable(tf.random_normal([prev_size, n + m]))
+    mul_output_biases = tf.Variable(tf.random_normal([n + m]))
+    return weights, biases, sum_output_weights, sum_output_biases, mul_output_weights, mul_output_biases
 
 
 # create perceptron tensor
-# return perceptron and placeholder for input data
-def create_perceptron(weights, biases):
-    x = tf.placeholder(tf.float32, [None, weights[0].get_shape()[0]])
-    result = x
+# return perceptron and placeholders for input data
+def create_perceptron(n, m, weights, biases, sum_output_weights, sum_output_biases, mul_output_weights, mul_output_biases):
+    a = tf.placeholder(tf.float32, [None, n])
+    b = tf.placeholder(tf.float32, [None, m])
+    result = tf.concat(1, [a, b])
     for i in xrange(len(weights)):
         result = tf.add(tf.matmul(result, weights[i]), biases[i])
-        if i != len(weights) - 1:
-            result = tf.nn.sigmoid(result)
-    return result, x
+        result = tf.nn.sigmoid(result)
+    result_sum = tf.add(tf.matmul(result, sum_output_weights), sum_output_biases)
+    result_mul = tf.add(tf.matmul(result, mul_output_weights), mul_output_biases)
+    return result_sum, result_mul, a, b
 
 
 # create objective functional
-# return objective and placeholder for target (correct answers)
-def create_cost(model, out_size):
-    y = tf.placeholder(tf.float32, [None, out_size])
-    cost = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(model, y))
-    return cost, y
+# return objective and placeholders for targets (correct answers)
+def create_cost(model_sum, model_mul, n, m):
+    s = tf.placeholder(tf.float32, [None, max(n, m) + 1])
+    p = tf.placeholder(tf.float32, [None, n + m])
+    cost = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(tf.concat(1, [model_sum, model_mul]), tf.concat(1, [s, p])))
+    return cost, s, p
 
 
 # generate `count` samples
 # resurn samples and correct answers
-def generate_batch(count, n):
-    x, y = [], []
-    limit = 2 ** n
+def generate_batch(count, n, m):
+    a, b, s, p = [], [], [], []
+    limit_a, limit_b = 2 ** n, 2 ** m
     for sample in xrange(count):
-        a = int(random.random() * limit)
-        b = int(random.random() * limit)
-        c = a + b
-        d = a * b
-        x.append(num2bits(a, n) + num2bits(b, n))
-        y.append(num2bits(c, n + 1) + num2bits(d, 2 * n))
-    return x, y
+        u = int(random.random() * limit_a)
+        v = int(random.random() * limit_b)
+        c = u + v
+        d = u * v
+        a.append(num2bits(u, n))
+        b.append(num2bits(v, m))
+        s.append(num2bits(c, max(n, m) + 1))
+        p.append(num2bits(d, n + m))
+    return a, b, s, p
 
 
 # print predictions for batch input parameters
-def print_predictions(sess, model, x, batch_x, batch_y):
-    n = len(batch_x[0]) / 2
-    pred = sess.run(model, feed_dict = {x: batch_x})
+def print_predictions(sess, model_sum, model_mul, a, b, batch_a, batch_b, n, m):
+    pred_sum, pred_mul = sess.run([model_sum, model_mul], feed_dict = {a: batch_a, b: batch_b})
     errors = 0
-    for i in xrange(len(pred)):
-        a, b = bits2num(batch_x[i][:n]), bits2num(batch_x[i][n:])
-        c = map(lambda t: 1 if t > 0.5 else 0, pred[i])
-        c, d = c[:n + 1], c[n + 1:]
+    for i in xrange(len(batch_a)):
+        a, b = bits2num(batch_a[i]), bits2num(batch_b[i])
+        c = map(lambda t: 1 if t > 0.5 else 0, pred_sum[i])
+        d = map(lambda t: 1 if t > 0.5 else 0, pred_mul[i])
         c = bits2num(c)
         d = bits2num(d)
         if a + b != c or a * b != d:
@@ -90,21 +100,22 @@ def read_data(path):
 
 # do all stuff
 def main():
-    # nn topology, first is input, last is output
-    n = int(sys.argv[1])
-    sizes = [2 * n, 5 * n, 5 * n, 5 * n, 3 * n + 1]
+    # sizes of input numbers
+    n, m = int(sys.argv[1]), int(sys.argv[2])
+    # nn topology, hidden layers
+    sizes = [5 * (n + m), 5 * (n + m), 5 * (n + m)]
     # step size
-    learning_rate = float(sys.argv[2])
-    # number of epochs
+    learning_rate = float(sys.argv[3])
+    # threshold to stop
     eps = 1e-5
     # number of samples in each epoch (because we have the same data all the time we can set it to 1)
-    batch_size, print_freq = int(sys.argv[3]), int(sys.argv[4])
+    batch_size, print_freq = int(sys.argv[4]), int(sys.argv[5])
     # create matrixes
-    weights, biases = create_layers(sizes)
-    # create model based on matrixes
-    model, x = create_perceptron(weights, biases)
+    weights, biases, sum_output_weights, sum_output_biases, mul_output_weights, mul_output_biases = create_layers(n, m, sizes)
+    # create models based on matrixes
+    model_sum, model_mul, a, b = create_perceptron(n, m, weights, biases, sum_output_weights, sum_output_biases, mul_output_weights, mul_output_biases)
     # create objective
-    cost, y = create_cost(model, sizes[-1])
+    cost, s, p = create_cost(model_sum, model_mul, n, m)
     # create optimizer
     #optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(cost)
     optimizer = tf.train.AdadeltaOptimizer(learning_rate = learning_rate).minimize(cost)
@@ -113,22 +124,18 @@ def main():
     with tf.Session() as sess:
         # run initialization (needed for tensorflow)
         sess.run(init)
-        # just check we have correct learning data
-        # print generate_batch(batch_size, n)
-        # check what we see on random data
-        # print sess.run(model, feed_dict = {x: generate_batch(batch_size, n)[0]})
         # iterate while error > eps
         epoch = 0
         while True:
             # generate next batch
-            batch_x, batch_y = generate_batch(batch_size, n)
+            batch_a, batch_b, batch_s, batch_p = generate_batch(batch_size, n, m)
             # run optimization
-            _, c = sess.run([optimizer, cost], feed_dict = {x: batch_x, y: batch_y})
+            _, c = sess.run([optimizer, cost], feed_dict = {a: batch_a, b: batch_b, s: batch_s, p: batch_p})
             # debug print
             if c < eps or epoch % print_freq == 0:
                 # print predictions
-                batch_x, batch_y = generate_batch(batch_size, n)
-                print_predictions(sess, model, x, batch_x, batch_y)
+                batch_a, batch_b, _, __ = generate_batch(batch_size, n, m)
+                print_predictions(sess, model_sum, model_mul, a, b, batch_a, batch_b, n, m)
                 # loss
                 print c / batch_size, epoch * batch_size
                 print

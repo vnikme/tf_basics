@@ -57,7 +57,7 @@ def main():
     sizes = [3, 5, 5]
     # step size
     learning_rate = 0.01
-    # number of epochs
+    # threshold to stop
     eps = 1e-3
     # number of samples in each epoch (because we have the same data all the time we can set it to 1)
     batch_size = 1
