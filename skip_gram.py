@@ -39,12 +39,25 @@ def read_data(path):
     return data, word2id, id2word
 
 
+# print some simple statistics
+def print_data_stats(data):
+    d = {}
+    for word in data:
+        d[word] = d.get(word, 0) + 1
+    idx = d.keys()
+    idx.sort(key = lambda x: -d[x])
+    #for word in idx[:100]:
+    #    print word
+    print len(data)
+
+
 #make next batch
-def generate_batch(data, word2id, batch_size, context_width):
+def generate_batch(data, word2id, context_width, take_prob):
     inputs, labels = [], []
     n = len(data)
-    for i in xrange(batch_size / context_width / 2):
-        k = int(random.random() * n)
+    for k in xrange(context_width, len(data) - context_width):
+        if random.random() > take_prob:
+            continue
         for j in xrange(-context_width, context_width + 1):
             if j == 0:
                 continue
@@ -56,9 +69,11 @@ def generate_batch(data, word2id, batch_size, context_width):
 # do all stuff
 def main():
     # define params
-    embedding_size, batch_size, num_sampled, context_width, epoch = map(int, sys.argv[2:7])
+    embedding_size, num_sampled, context_width, epoch, print_freq = map(int, sys.argv[4:9])
+    learning_rate, take_prob = map(float, sys.argv[2:4])
     # read data, make indexes word <-> id
     data, word2id, id2word = read_data(sys.argv[1])
+    print_data_stats(data)
     vocabulary_size = len(word2id)
     # input and output placeholders
     inputs = tf.placeholder(tf.int32, shape = [None])
@@ -78,23 +93,25 @@ def main():
                                num_classes=vocabulary_size
                               )
                          )
-    optimizer = tf.train.GradientDescentOptimizer(1.0).minimize(loss)
+    #optimizer = tf.train.GradientDescentOptimizer(1.0).minimize(loss)
+    optimizer = tf.train.AdadeltaOptimizer(learning_rate = learning_rate).minimize(loss)
     init = tf.global_variables_initializer()
     sess = tf.Session()
     sess.run(init)
     for e in xrange(epoch):
-        batch_inputs, batch_labels = generate_batch(data, word2id, batch_size, context_width)
+        batch_inputs, batch_labels = generate_batch(data, word2id, context_width, take_prob)
         _, loss_val = sess.run([optimizer, loss], feed_dict = {inputs: batch_inputs, labels: batch_labels})
-        if e % 1000 == 0 or e + 1 == epoch:
-            print loss_val
-            pred = sess.run([embed_tensor], feed_dict = {inputs: [word2id["говорил"], word2id["говорила"], word2id["мужчина"], word2id["женщина"]]})
+        if e % print_freq == 0 or e + 1 == epoch:
+            pred = sess.run([embed_tensor], feed_dict = {inputs: [word2id["был"], word2id["была"], word2id["князь"], word2id["княжна"]]})
             a = [float(t) for t in pred[0][0] - pred[0][1]]
             b = [float(t) for t in pred[0][2] - pred[0][3]]
+            c = [float(t) for t in pred[0][0] - pred[0][1] - pred[0][2] + pred[0][3]]
             a_abs = math.sqrt(sum([t * t for t in a]))
             b_abs = math.sqrt(sum([t * t for t in b]))
+            c_abs = math.sqrt(sum([t * t for t in c]))
             a = [t / a_abs for t in a]
             b = [t / b_abs for t in b]
-            print sum([i * j for i, j in zip(a, b)])
+            print "%.2f\t%.4f\t%.4f" % (loss_val, sum([i * j for i, j in zip(a, b)]), c_abs)
 
 
 # entry point
