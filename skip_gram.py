@@ -87,7 +87,7 @@ def main():
         _, loss_val = sess.run([optimizer, loss], feed_dict = {inputs: batch_inputs, labels: batch_labels})
         if i % 1000 == 0 or i + 1 == epoch:
             print loss_val
-    pred = sess.run([embed_tensor], feed_dict = {inputs: [word2id["здоров"], word2id["здорова"], word2id["мужчина"], word2id["женщина"]]})
+    pred = sess.run([embed_tensor], feed_dict = {inputs: [word2id["говорил"], word2id["говорила"], word2id["мужчина"], word2id["женщина"]]})
     print pred[0][0] - pred[0][1]
     print pred[0][2] - pred[0][3]
 
