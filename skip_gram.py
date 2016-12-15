@@ -82,14 +82,19 @@ def main():
     init = tf.global_variables_initializer()
     sess = tf.Session()
     sess.run(init)
-    for i in xrange(epoch):
+    for e in xrange(epoch):
         batch_inputs, batch_labels = generate_batch(data, word2id, batch_size, context_width)
         _, loss_val = sess.run([optimizer, loss], feed_dict = {inputs: batch_inputs, labels: batch_labels})
-        if i % 1000 == 0 or i + 1 == epoch:
+        if e % 1000 == 0 or e + 1 == epoch:
             print loss_val
-    pred = sess.run([embed_tensor], feed_dict = {inputs: [word2id["говорил"], word2id["говорила"], word2id["мужчина"], word2id["женщина"]]})
-    print pred[0][0] - pred[0][1]
-    print pred[0][2] - pred[0][3]
+            pred = sess.run([embed_tensor], feed_dict = {inputs: [word2id["говорил"], word2id["говорила"], word2id["мужчина"], word2id["женщина"]]})
+            a = [float(t) for t in pred[0][0] - pred[0][1]]
+            b = [float(t) for t in pred[0][2] - pred[0][3]]
+            a_abs = math.sqrt(sum([t * t for t in a]))
+            b_abs = math.sqrt(sum([t * t for t in b]))
+            a = [t / a_abs for t in a]
+            b = [t / b_abs for t in b]
+            print sum([i * j for i, j in zip(a, b)])
 
 
 # entry point
