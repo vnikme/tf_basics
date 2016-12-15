@@ -111,7 +111,7 @@ def main():
             c_abs = math.sqrt(sum([t * t for t in c]))
             a = [t / a_abs for t in a]
             b = [t / b_abs for t in b]
-            print "%.2f\t%.4f\t%.4f" % (loss_val, sum([i * j for i, j in zip(a, b)]), c_abs)
+            print "%.2f\t%.4f\t%.4f\t%.4f\t%.4f" % (loss_val, sum([i * j for i, j in zip(a, b)]), a_abs, b_abs, c_abs)
 
 
 # entry point
