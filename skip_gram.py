@@ -85,67 +85,69 @@ def print_nearest(embed_weights, inputs, id2word, sess, target, count):
 
 # do all stuff
 def main():
-    # define params
-    params = sys.argv[1:]
-    input_path, params = params[:1] + [params[1:]]
-    learning_rate, params = map(float, params[:1]) + [params[1:]]
-    embedding_size, batch_size, num_sampled, context_width, count_of_nearest, epoch, print_freq, params = map(int, params[:7]) + [params[7:]]
-    words, params = params[:4], params[4:]
-    # read data, make indexes word <-> id
-    data, word2id, id2word = read_data(sys.argv[1])
-    print_data_stats(data, words)
-    vocabulary_size = len(word2id)
-    # input and output placeholders
-    inputs = tf.placeholder(tf.int32, shape = [None])
-    labels = tf.placeholder(tf.int32, shape = [None, 1])
-    # matrix and tensor for 'input->embedding' transform
-    embed_weights = tf.Variable(tf.random_uniform([vocabulary_size, embedding_size], -1.0, 1.0))
-    embed_tensor = tf.nn.embedding_lookup(embed_weights, inputs)
-    # matrix and bias for 'embedding->target' transform
-    nce_weights = tf.Variable(tf.truncated_normal([vocabulary_size, embedding_size], stddev=1.0 / math.sqrt(embedding_size)))
-    nce_biases = tf.Variable(tf.zeros([vocabulary_size]))
-    loss = tf.reduce_mean(
-                tf.nn.nce_loss(weights=nce_weights,
-                               biases=nce_biases,
-                               labels=labels,
-                               inputs=embed_tensor,
-                               num_sampled=num_sampled,
-                               num_classes=vocabulary_size
-                              )
-                         )
-    #optimizer = tf.train.GradientDescentOptimizer(1.0).minimize(loss)
-    optimizer = tf.train.AdadeltaOptimizer(learning_rate = learning_rate).minimize(loss)
-    init = tf.global_variables_initializer()
-    sess = tf.Session()
-    sess.run(init)
-    # generate all batches
-    all_inputs, all_labels = generate_batch(data, word2id, context_width, 1.0)
-    all_batches_inputs, all_batches_labels = [], []
-    for i in xrange(0, len(all_inputs), batch_size):
-        all_batches_inputs.append(all_inputs[i:i+batch_size])
-        all_batches_labels.append(all_labels[i:i+batch_size])
-    for e in xrange(epoch):
-        loss_val = 0.0
-        for batch_inputs, batch_labels in zip(all_batches_inputs, all_batches_labels):
-            _, l = sess.run([optimizer, loss], feed_dict = {inputs: batch_inputs, labels: batch_labels})
-            loss_val += (l / len(all_batches_inputs))
-            #print l, len(all_batches_inputs)
-        if e % print_freq == 0 or e + 1 == epoch:
-            pred = sess.run([embed_tensor], feed_dict = {inputs: [word2id[t] for t in words]})
-            a = [float(t) for t in pred[0][0] - pred[0][1]]
-            b = [float(t) for t in pred[0][2] - pred[0][3]]
-            c = [float(t) for t in pred[0][0] - pred[0][1] - pred[0][2] + pred[0][3]]
-            d = [float(t) for t in pred[0][2] + pred[0][1] - pred[0][0]]
-            e = [float(t) for t in pred[0][0]]
-            a_abs = math.sqrt(sum([t * t for t in a]))
-            b_abs = math.sqrt(sum([t * t for t in b]))
-            c_abs = math.sqrt(sum([t * t for t in c]))
-            a = [t / a_abs for t in a]
-            b = [t / b_abs for t in b]
-            print "%.2f\t%.4f\t%.4f\t%.4f\t%.4f" % (loss_val, sum([i * j for i, j in zip(a, b)]), a_abs, b_abs, c_abs)
-            print_nearest(embed_weights, inputs, id2word, sess, d, count_of_nearest)
-            print_nearest(embed_weights, inputs, id2word, sess, e, count_of_nearest)
-            print
+    with tf.device('/cpu:0'):
+        # define params
+        params = sys.argv[1:]
+        input_path, params = params[:1] + [params[1:]]
+        learning_rate, params = map(float, params[:1]) + [params[1:]]
+        embedding_size, batch_size, num_sampled, context_width, count_of_nearest, epoch, print_freq, params = map(int, params[:7]) + [params[7:]]
+        words, params = params[:4], params[4:]
+        # read data, make indexes word <-> id
+        data, word2id, id2word = read_data(sys.argv[1])
+        print_data_stats(data, words)
+        vocabulary_size = len(word2id)
+        # input and output placeholders
+        inputs = tf.placeholder(tf.int32, shape = [None])
+        labels = tf.placeholder(tf.int32, shape = [None, 1])
+        # matrix and tensor for 'input->embedding' transform
+        embed_weights = tf.Variable(tf.random_uniform([vocabulary_size, embedding_size], -1.0, 1.0))
+        embed_tensor = tf.nn.embedding_lookup(embed_weights, inputs)
+        # matrix and bias for 'embedding->target' transform
+        nce_weights = tf.Variable(tf.truncated_normal([vocabulary_size, embedding_size], stddev=1.0 / math.sqrt(embedding_size)))
+        nce_biases = tf.Variable(tf.zeros([vocabulary_size]))
+        loss = tf.reduce_mean(
+                    tf.nn.nce_loss(weights=nce_weights,
+                                   biases=nce_biases,
+                                   labels=labels,
+                                   inputs=embed_tensor,
+                                   num_sampled=num_sampled,
+                                   num_classes=vocabulary_size
+                                  )
+                             )
+        #optimizer = tf.train.GradientDescentOptimizer(1.0).minimize(loss)
+        optimizer = tf.train.AdadeltaOptimizer(learning_rate = learning_rate).minimize(loss)
+        init = tf.global_variables_initializer()
+        #sess = tf.Session(config = tf.ConfigProto(log_device_placement = True))
+        sess = tf.Session()
+        sess.run(init)
+        # generate all batches
+        all_inputs, all_labels = generate_batch(data, word2id, context_width, 1.0)
+        all_batches_inputs, all_batches_labels = [], []
+        for i in xrange(0, len(all_inputs), batch_size):
+            all_batches_inputs.append(all_inputs[i:i+batch_size])
+            all_batches_labels.append(all_labels[i:i+batch_size])
+        for e in xrange(epoch):
+            loss_val = 0.0
+            for batch_inputs, batch_labels in zip(all_batches_inputs, all_batches_labels):
+                _, l = sess.run([optimizer, loss], feed_dict = {inputs: batch_inputs, labels: batch_labels})
+                loss_val += (l / len(all_batches_inputs))
+                #print l, len(all_batches_inputs)
+            if e % print_freq == 0 or e + 1 == epoch:
+                pred = sess.run([embed_tensor], feed_dict = {inputs: [word2id[t] for t in words]})
+                a = [float(t) for t in pred[0][0] - pred[0][1]]
+                b = [float(t) for t in pred[0][2] - pred[0][3]]
+                c = [float(t) for t in pred[0][0] - pred[0][1] - pred[0][2] + pred[0][3]]
+                d = [float(t) for t in pred[0][2] + pred[0][1] - pred[0][0]]
+                e = [float(t) for t in pred[0][0]]
+                a_abs = math.sqrt(sum([t * t for t in a]))
+                b_abs = math.sqrt(sum([t * t for t in b]))
+                c_abs = math.sqrt(sum([t * t for t in c]))
+                a = [t / a_abs for t in a]
+                b = [t / b_abs for t in b]
+                print "%.2f\t%.4f\t%.4f\t%.4f\t%.4f" % (loss_val, sum([i * j for i, j in zip(a, b)]), a_abs, b_abs, c_abs)
+                print_nearest(embed_weights, inputs, id2word, sess, d, count_of_nearest)
+                print_nearest(embed_weights, inputs, id2word, sess, e, count_of_nearest)
+                print
 
 
 # entry point
