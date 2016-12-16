@@ -51,7 +51,7 @@ def print_data_stats(data):
     print len(data)
 
 
-#make next batch
+# make next batch
 def generate_batch(data, word2id, context_width, take_prob):
     inputs, labels = [], []
     n = len(data)
@@ -64,6 +64,21 @@ def generate_batch(data, word2id, context_width, take_prob):
             inputs.append(word2id[data[k]])
             labels.append([word2id[data[(k + j + n) % n]]])
     return inputs, labels
+
+
+# operation to calculate distance from certain word
+def create_l2_dist(embed_weights, inputs, target):
+    dist = tf.nn.embedding_lookup(embed_weights, inputs)
+    dist = tf.add(dist, [-t for t in target])
+    dist = -tf.sqrt(tf.reduce_sum(tf.mul(dist, dist), 1))
+    return dist
+
+
+# print nearest words
+def print_nearest(embed_weights, inputs, id2word, sess, target):
+    dist = create_l2_dist(embed_weights, inputs, target)
+    _, idx = sess.run(tf.nn.top_k(dist, 5), feed_dict = {inputs: range(len(id2word))})
+    print " ".join([id2word[t] for t in idx])
 
 
 # do all stuff
@@ -106,12 +121,17 @@ def main():
             a = [float(t) for t in pred[0][0] - pred[0][1]]
             b = [float(t) for t in pred[0][2] - pred[0][3]]
             c = [float(t) for t in pred[0][0] - pred[0][1] - pred[0][2] + pred[0][3]]
+            d = [float(t) for t in pred[0][0] - pred[0][2] + pred[0][3]]
+            e = [float(t) for t in pred[0][2]]
             a_abs = math.sqrt(sum([t * t for t in a]))
             b_abs = math.sqrt(sum([t * t for t in b]))
             c_abs = math.sqrt(sum([t * t for t in c]))
             a = [t / a_abs for t in a]
             b = [t / b_abs for t in b]
             print "%.2f\t%.4f\t%.4f\t%.4f\t%.4f" % (loss_val, sum([i * j for i, j in zip(a, b)]), a_abs, b_abs, c_abs)
+            print_nearest(embed_weights, inputs, id2word, sess, d)
+            print_nearest(embed_weights, inputs, id2word, sess, e)
+            print
 
 
 # entry point
