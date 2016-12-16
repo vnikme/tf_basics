@@ -40,7 +40,7 @@ def read_data(path):
 
 
 # print some simple statistics
-def print_data_stats(data):
+def print_data_stats(data, words):
     d = {}
     for word in data:
         d[word] = d.get(word, 0) + 1
@@ -48,6 +48,8 @@ def print_data_stats(data):
     idx.sort(key = lambda x: -d[x])
     #for word in idx[:100]:
     #    print word
+    for word in words:
+        print word, d[word]
     print len(data)
 
 
@@ -75,21 +77,25 @@ def create_l2_dist(embed_weights, inputs, target):
 
 
 # print nearest words
-def print_nearest(embed_weights, inputs, id2word, sess, target):
+def print_nearest(embed_weights, inputs, id2word, sess, target, count):
     dist = create_l2_dist(embed_weights, inputs, target)
-    _, idx = sess.run(tf.nn.top_k(dist, 5), feed_dict = {inputs: range(len(id2word))})
+    _, idx = sess.run(tf.nn.top_k(dist, count), feed_dict = {inputs: range(len(id2word))})
     print " ".join([id2word[t] for t in idx])
 
 
 # do all stuff
 def main():
     # define params
-    embedding_size, num_sampled, context_width, epoch, print_freq = map(int, sys.argv[4:9])
-    learning_rate, take_prob = map(float, sys.argv[2:4])
+    params = sys.argv[1:]
+    input_path, params = params[:1] + [params[1:]]
+    learning_rate, params = map(float, params[:1]) + [params[1:]]
+    embedding_size, batch_size, num_sampled, context_width, count_of_nearest, epoch, print_freq, params = map(int, params[:7]) + [params[7:]]
+    words, params = params[:4], params[4:]
     # read data, make indexes word <-> id
     data, word2id, id2word = read_data(sys.argv[1])
-    print_data_stats(data)
+    print_data_stats(data, words)
     vocabulary_size = len(word2id)
+    take_prob = float(batch_size) / len(data) / 2 / context_width
     # input and output placeholders
     inputs = tf.placeholder(tf.int32, shape = [None])
     labels = tf.placeholder(tf.int32, shape = [None, 1])
@@ -115,9 +121,10 @@ def main():
     sess.run(init)
     for e in xrange(epoch):
         batch_inputs, batch_labels = generate_batch(data, word2id, context_width, take_prob)
+        print len(batch_inputs)
         _, loss_val = sess.run([optimizer, loss], feed_dict = {inputs: batch_inputs, labels: batch_labels})
         if e % print_freq == 0 or e + 1 == epoch:
-            pred = sess.run([embed_tensor], feed_dict = {inputs: [word2id["был"], word2id["была"], word2id["князь"], word2id["княжна"]]})
+            pred = sess.run([embed_tensor], feed_dict = {inputs: [word2id[t] for t in words]})
             a = [float(t) for t in pred[0][0] - pred[0][1]]
             b = [float(t) for t in pred[0][2] - pred[0][3]]
             c = [float(t) for t in pred[0][0] - pred[0][1] - pred[0][2] + pred[0][3]]
@@ -129,8 +136,8 @@ def main():
             a = [t / a_abs for t in a]
             b = [t / b_abs for t in b]
             print "%.2f\t%.4f\t%.4f\t%.4f\t%.4f" % (loss_val, sum([i * j for i, j in zip(a, b)]), a_abs, b_abs, c_abs)
-            print_nearest(embed_weights, inputs, id2word, sess, d)
-            print_nearest(embed_weights, inputs, id2word, sess, e)
+            print_nearest(embed_weights, inputs, id2word, sess, d, count_of_nearest)
+            print_nearest(embed_weights, inputs, id2word, sess, e, count_of_nearest)
             print
 
 
