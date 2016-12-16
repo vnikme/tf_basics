@@ -95,7 +95,6 @@ def main():
     data, word2id, id2word = read_data(sys.argv[1])
     print_data_stats(data, words)
     vocabulary_size = len(word2id)
-    take_prob = float(batch_size) / len(data) / 2 / context_width
     # input and output placeholders
     inputs = tf.placeholder(tf.int32, shape = [None])
     labels = tf.placeholder(tf.int32, shape = [None, 1])
@@ -119,17 +118,25 @@ def main():
     init = tf.global_variables_initializer()
     sess = tf.Session()
     sess.run(init)
+    # generate all batches
+    all_inputs, all_labels = generate_batch(data, word2id, context_width, 1.0)
+    all_batches_inputs, all_batches_labels = [], []
+    for i in xrange(0, len(all_inputs), batch_size):
+        all_batches_inputs.append(all_inputs[i:i+batch_size])
+        all_batches_labels.append(all_labels[i:i+batch_size])
     for e in xrange(epoch):
-        batch_inputs, batch_labels = generate_batch(data, word2id, context_width, take_prob)
-        print len(batch_inputs)
-        _, loss_val = sess.run([optimizer, loss], feed_dict = {inputs: batch_inputs, labels: batch_labels})
+        loss_val = 0.0
+        for batch_inputs, batch_labels in zip(all_batches_inputs, all_batches_labels):
+            _, l = sess.run([optimizer, loss], feed_dict = {inputs: batch_inputs, labels: batch_labels})
+            loss_val += (l / len(all_batches_inputs))
+            #print l, len(all_batches_inputs)
         if e % print_freq == 0 or e + 1 == epoch:
             pred = sess.run([embed_tensor], feed_dict = {inputs: [word2id[t] for t in words]})
             a = [float(t) for t in pred[0][0] - pred[0][1]]
             b = [float(t) for t in pred[0][2] - pred[0][3]]
             c = [float(t) for t in pred[0][0] - pred[0][1] - pred[0][2] + pred[0][3]]
-            d = [float(t) for t in pred[0][0] - pred[0][2] + pred[0][3]]
-            e = [float(t) for t in pred[0][2]]
+            d = [float(t) for t in pred[0][2] + pred[0][1] - pred[0][0]]
+            e = [float(t) for t in pred[0][0]]
             a_abs = math.sqrt(sum([t * t for t in a]))
             b_abs = math.sqrt(sum([t * t for t in b]))
             c_abs = math.sqrt(sum([t * t for t in c]))
