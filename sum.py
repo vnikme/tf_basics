@@ -118,51 +118,52 @@ def read_data(path):
 
 # do all stuff
 def main():
-    # sizes of input numbers
-    n, m = int(sys.argv[1]), int(sys.argv[2])
-    # nn topology, hidden layers
-    sizes = [5 * (n + m), 5 * (n + m), 5 * (n + m)]
-    # step size
-    learning_rate = float(sys.argv[3])
-    # threshold to stop
-    eps = 1e-3
-    # number of samples in each epoch (because we have the same data all the time we can set it to 1)
-    batch_size, print_freq = int(sys.argv[4]), int(sys.argv[5])
-    # create matrixes
-    weights, biases, sum_output_weights, sum_output_biases, mul_output_weights, mul_output_biases = create_layers(n, m, sizes)
-    # create models based on matrixes
-    model_sum, model_mul, a, b = create_perceptron(n, m, weights, biases, sum_output_weights, sum_output_biases, mul_output_weights, mul_output_biases)
-    # create objective
-    cost, s, p = create_cost(model_sum, model_mul, n, m)
-    # create optimizer
-    #optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(cost)
-    optimizer = tf.train.AdadeltaOptimizer(learning_rate = learning_rate).minimize(cost)
-    # main work
-    init = tf.global_variables_initializer()
-    with tf.Session() as sess:
-        # run initialization (needed for tensorflow)
-        sess.run(init)
-        # iterate while error > eps
-        epoch = 0
-        while True:
-            # generate next batch
-            batch_a, batch_b, batch_s, batch_p = generate_batch(batch_size, n, m)
-            # run optimization
-            _, c = sess.run([optimizer, cost], feed_dict = {a: batch_a, b: batch_b, s: batch_s, p: batch_p})
-            # debug print
-            if c < eps or epoch % print_freq == 0:
-                # print predictions
-                batch_a, batch_b, _, __ = generate_batch(batch_size, n, m)
-                print_predictions(sess, model_sum, model_mul, a, b, batch_a, batch_b, n, m)
-                # loss
-                print c / batch_size, epoch * batch_size
-                print
-            if c / batch_size < eps:
-                break
-            epoch += 1
-        for i in xrange(len(sizes) - 1):
-            print sess.run(weights[i])
-            print sess.run(biases[i])
+    with tf.device("/cpu:0"):
+        # sizes of input numbers
+        n, m = int(sys.argv[1]), int(sys.argv[2])
+        # nn topology, hidden layers
+        sizes = [5 * (n + m), 5 * (n + m), 5 * (n + m)]
+        # step size
+        learning_rate = float(sys.argv[3])
+        # threshold to stop
+        eps = 1e-3
+        # number of samples in each epoch (because we have the same data all the time we can set it to 1)
+        batch_size, print_freq = int(sys.argv[4]), int(sys.argv[5])
+        # create matrixes
+        weights, biases, sum_output_weights, sum_output_biases, mul_output_weights, mul_output_biases = create_layers(n, m, sizes)
+        # create models based on matrixes
+        model_sum, model_mul, a, b = create_perceptron(n, m, weights, biases, sum_output_weights, sum_output_biases, mul_output_weights, mul_output_biases)
+        # create objective
+        cost, s, p = create_cost(model_sum, model_mul, n, m)
+        # create optimizer
+        #optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(cost)
+        optimizer = tf.train.AdadeltaOptimizer(learning_rate = learning_rate).minimize(cost)
+        # main work
+        init = tf.global_variables_initializer()
+        with tf.Session() as sess:
+            # run initialization (needed for tensorflow)
+            sess.run(init)
+            # iterate while error > eps
+            epoch = 0
+            while True:
+                # generate next batch
+                batch_a, batch_b, batch_s, batch_p = generate_batch(batch_size, n, m)
+                # run optimization
+                _, c = sess.run([optimizer, cost], feed_dict = {a: batch_a, b: batch_b, s: batch_s, p: batch_p})
+                # debug print
+                if c < eps or epoch % print_freq == 0:
+                    # print predictions
+                    batch_a, batch_b, _, __ = generate_batch(batch_size, n, m)
+                    print_predictions(sess, model_sum, model_mul, a, b, batch_a, batch_b, n, m)
+                    # loss
+                    print c / batch_size, epoch * batch_size
+                    print
+                if c / batch_size < eps:
+                    break
+                epoch += 1
+            for i in xrange(len(sizes) - 1):
+                print sess.run(weights[i])
+                print sess.run(biases[i])
 
 
 # entry point
