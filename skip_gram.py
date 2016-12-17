@@ -68,15 +68,43 @@ def generate_batch(data, word2id, context_width, take_prob):
     return inputs, labels
 
 
+# norm of vector
+def get_vector_norm(a):
+    a = tf.transpose(a)
+    a = tf.mul(a, a)
+    a = tf.reduce_sum(a, 0)
+    a = tf.add(a, 1e-16)
+    a = tf.sqrt(a)
+    a = tf.transpose(a)
+    return a
+
+
 # operation to calculate distance from certain word
+def create_cos_dist(a, b, c, inputs, embed_weights):
+    d = tf.nn.embedding_lookup(embed_weights, inputs)
+    b = tf.subtract(b, a)
+    d = tf.subtract(d, c)
+    b = tf.divide(b, tf.transpose([get_vector_norm(b)]))
+    d = tf.divide(d, tf.transpose([get_vector_norm(d)]))
+    return tf.reduce_sum(tf.mul(b, d), 1)
+
+
+# print nearest words
+def print_analogy(a, b, c, inputs, embed_weights, id2word, sess, count):
+    dist = create_cos_dist(a, b, c, inputs, embed_weights)
+    dist, idx = sess.run(tf.nn.top_k(dist, count), feed_dict = {inputs: range(len(id2word))})
+    print "   ".join(["%s (%.3f)" % (id2word[idx[i]], dist[i]) for i in xrange(len(idx))])
+
+
+# l2 distance between vectors
 def create_l2_dist(embed_weights, inputs, target):
     dist = tf.nn.embedding_lookup(embed_weights, inputs)
     dist = tf.add(dist, [-t for t in target])
     dist = -tf.sqrt(tf.reduce_sum(tf.mul(dist, dist), 1))
     return dist
-
-
-# print nearest words
+ 
+ 
+ # print nearest words
 def print_nearest(embed_weights, inputs, id2word, sess, target, count):
     dist = create_l2_dist(embed_weights, inputs, target)
     _, idx = sess.run(tf.nn.top_k(dist, count), feed_dict = {inputs: range(len(id2word))})
@@ -145,6 +173,7 @@ def main():
                 a = [t / a_abs for t in a]
                 b = [t / b_abs for t in b]
                 print "%.2f\t%.4f\t%.4f\t%.4f\t%.4f" % (loss_val, sum([i * j for i, j in zip(a, b)]), a_abs, b_abs, c_abs)
+                print_analogy(pred[0][0], pred[0][1], pred[0][2], inputs, embed_weights, id2word, sess, count_of_nearest)
                 print_nearest(embed_weights, inputs, id2word, sess, d, count_of_nearest)
                 print_nearest(embed_weights, inputs, id2word, sess, e, count_of_nearest)
                 print
