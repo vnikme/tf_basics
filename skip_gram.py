@@ -176,7 +176,7 @@ def main():
         # define params
         params = sys.argv[1:]
         input_path, dump_path, params = params[:2] + [params[2:]]
-        learning_rate, eps, params = map(float, params[:2]) + [params[2:]]
+        learning_rate, eps, valid_part, params = map(float, params[:3]) + [params[3:]]
         embedding_size, batch_size, min_freq, num_sampled, context_width, count_of_nearest, print_freq, params = map(int, params[:7]) + [params[7:]]
         words, params = params[:4], params[4:]
         # read data, make indexes word <-> id
@@ -195,7 +195,7 @@ def main():
         # tensor for 'input->embedding' transform
         embed_tensor = tf.nn.embedding_lookup(w2v.EmbeddingWeights, inputs)
         # define loss
-        loss = tf.reduce_mean(
+        loss = tf.reduce_sum(
                     tf.nn.nce_loss(weights = w2v.NCEWeights,
                                    biases = w2v.NCEBiases,
                                    labels = labels,
@@ -216,13 +216,24 @@ def main():
         for i in xrange(0, len(all_inputs), batch_size):
             all_batches_inputs.append(all_inputs[i:i+batch_size])
             all_batches_labels.append(all_labels[i:i+batch_size])
+        batches_count = len(all_batches_inputs)
+        learn = range(batches_count)
+        random.shuffle(learn)
+        valid, learn = learn[:int(batches_count * valid_part)], learn[int(batches_count * valid_part):]
+        valid_inputs = sum([all_batches_inputs[t] for t in valid], [])
+        valid_labels = sum([all_batches_labels[t] for t in valid], [])
         epoch = 0
         while True:
-            loss_val = 0.0
-            for batch_inputs, batch_labels in zip(all_batches_inputs, all_batches_labels):
+            loss_val, loss_cnt = 0.0, 1e-38
+            for learn_idx in learn:
+                batch_inputs, batch_labels = all_batches_inputs[learn_idx], all_batches_labels[learn_idx]
                 _, l = sess.run([optimizer, loss], feed_dict = {inputs: batch_inputs, labels: batch_labels})
-                loss_val += (l / len(all_batches_inputs))
-                #print l, len(all_batches_inputs)
+                loss_val += l
+                loss_cnt += len(batch_inputs)
+                #print l, len(batch_inputs)
+            loss_val /= loss_cnt
+            valid_loss = sess.run([loss], feed_dict = {inputs: valid_inputs, labels: valid_labels})[0]
+            valid_loss /= len(valid_inputs)
             if epoch % print_freq == 0 or loss_val < eps:
                 try:
                     shutil.copy(dump_path, dump_path + ".bak")
@@ -240,7 +251,7 @@ def main():
                 c_abs = math.sqrt(sum([t * t for t in c]))
                 a = [t / a_abs for t in a]
                 b = [t / b_abs for t in b]
-                print "%.2f\t%.4f\t%.4f\t%.4f\t%.4f" % (loss_val, sum([i * j for i, j in zip(a, b)]), a_abs, b_abs, c_abs)
+                print "%.2f\t%.2f\t%.4f\t%.4f\t%.4f\t%.4f" % (loss_val, valid_loss, sum([i * j for i, j in zip(a, b)]), a_abs, b_abs, c_abs)
                 print_analogy(pred[0][0], pred[0][1], pred[0][2], inputs, w2v.EmbeddingWeights, w2v.Id2Word, sess, count_of_nearest)
                 print_nearest(w2v.EmbeddingWeights, inputs, w2v.Id2Word, sess, d, count_of_nearest)
                 print_nearest(w2v.EmbeddingWeights, inputs, w2v.Id2Word, sess, e, count_of_nearest)
