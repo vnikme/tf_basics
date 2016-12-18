@@ -19,7 +19,7 @@ def is_letter(ch):
 
 
 # read file, split words, return
-def read_data(path):
+def read_data(path, min_freq):
     data = []
     word = ""
     for ch in to_wide_lower(open(path).read() + " "):
@@ -29,9 +29,14 @@ def read_data(path):
             word = ""
         else:
             word += ch
+    freqs = {}
+    for w in data:
+        freqs[w] = freqs.get(w, 0) + 1
     word2id = {}
     id2word = []
     for w in data:
+        if freqs[w] < min_freq:
+            w = "<unk>"
         if w in word2id:
             continue
         word2id[w] = len(id2word)
@@ -40,17 +45,22 @@ def read_data(path):
 
 
 # print some simple statistics
-def print_data_stats(data, words):
+def print_data_stats(data, words, w2v):
     d = {}
     for word in data:
         d[word] = d.get(word, 0) + 1
     idx = d.keys()
     idx.sort(key = lambda x: -d[x])
+    lens = {}
     #for word in idx[:100]:
     #    print word
-    for word in words:
-        print word, d[word]
-    print len(data)
+    print len(data), len(w2v.Id2Word)
+    #for word in d.keys():
+    #    l = d[word]
+    #    lens[l] = lens.get(l, 0) + 1
+    #for k in sorted(lens.keys()):
+    #    print k, lens[k]
+    #exit(1)
 
 
 # make next batch
@@ -60,11 +70,13 @@ def generate_batch(data, word2id, context_width, take_prob):
     for k in xrange(context_width, len(data) - context_width):
         if random.random() > take_prob:
             continue
+        word = word2id[data[k]] if data[k] in word2id else word2id["<unk>"]
         for j in xrange(-context_width, context_width + 1):
             if j == 0:
                 continue
-            inputs.append(word2id[data[k]])
-            labels.append([word2id[data[(k + j + n) % n]]])
+            context_word = word2id[data[(k + j + n) % n]] if data[(k + j + n) % n] in word2id else word2id["<unk>"]
+            inputs.append(word)
+            labels.append([context_word])
     return inputs, labels
 
 
@@ -165,17 +177,17 @@ def main():
         params = sys.argv[1:]
         input_path, dump_path, params = params[:2] + [params[2:]]
         learning_rate, eps, params = map(float, params[:2]) + [params[2:]]
-        embedding_size, batch_size, num_sampled, context_width, count_of_nearest, print_freq, params = map(int, params[:6]) + [params[6:]]
+        embedding_size, batch_size, min_freq, num_sampled, context_width, count_of_nearest, print_freq, params = map(int, params[:7]) + [params[7:]]
         words, params = params[:4], params[4:]
         # read data, make indexes word <-> id
         w2v = TWord2Vec()
-        data, w2v.Word2Id, w2v.Id2Word = read_data(sys.argv[1])
+        data, w2v.Word2Id, w2v.Id2Word = read_data(input_path, min_freq)
         if w2v.Load(dump_path):
             print "Loaded"
         else:
             print "Failed to load from '%s'" % dump_path
             w2v.Init(embedding_size)
-        print_data_stats(data, words)
+        print_data_stats(data, words, w2v)
         vocabulary_size = len(w2v.Word2Id)
         # input and output placeholders
         inputs = tf.placeholder(tf.int32, shape = [None])
