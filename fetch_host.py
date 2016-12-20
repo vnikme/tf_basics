@@ -5,19 +5,16 @@ from bs4 import BeautifulSoup
 
 
 def process_page(data, base_url, addr, queue, visited, path, number):
+    time.sleep(5)
     doc = BeautifulSoup(data, "html.parser")
-    print doc
-    time.sleep(3)
     content = ""
     for pre in doc.find_all("pre"):
         for s in pre.stripped_strings:
             content += (s + "\n")
-    if "Last-modified:" in content:
-        content = content[:content.index("Last-modified:")]
     result = {}
     result["path"] = addr.path
     result["data"] = content.encode("utf-8")
-    print result["path"], len(result["data"])
+    print result["path"], len(result["data"]), len(queue)
     open("%s/%d" % (path, number), "wt").write(base64.b64encode(json.dumps(result)))
     for a in doc.find_all("a"):
         if "href" not in a.attrs:
@@ -28,7 +25,6 @@ def process_page(data, base_url, addr, queue, visited, path, number):
         if url.netloc and url.netloc != addr.netloc:
             continue
         url = urlparse.urljoin(base_url, url.path)
-        print url
         if url in visited:
             continue
         queue.append(url)
