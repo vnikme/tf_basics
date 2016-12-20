@@ -179,6 +179,7 @@ def main():
         learning_rate, eps, valid_part, params = map(float, params[:3]) + [params[3:]]
         embedding_size, batch_size, min_freq, num_sampled, context_width, count_of_nearest, print_freq, params = map(int, params[:7]) + [params[7:]]
         words, params = params[:4], params[4:]
+        learning_rate /= batch_size
         # read data, make indexes word <-> id
         w2v = TWord2Vec()
         data, w2v.Word2Id, w2v.Id2Word = read_data(input_path, min_freq)
@@ -195,7 +196,7 @@ def main():
         # tensor for 'input->embedding' transform
         embed_tensor = tf.nn.embedding_lookup(w2v.EmbeddingWeights, inputs)
         # define loss
-        loss = tf.reduce_sum(
+        loss = tf.reduce_mean(
                     tf.nn.nce_loss(weights = w2v.NCEWeights,
                                    biases = w2v.NCEBiases,
                                    labels = labels,
@@ -204,8 +205,8 @@ def main():
                                    num_classes = vocabulary_size
                                   )
                              )
-        #optimizer = tf.train.GradientDescentOptimizer(1.0).minimize(loss)
-        optimizer = tf.train.AdadeltaOptimizer(learning_rate = learning_rate).minimize(loss)
+        optimizer = tf.train.GradientDescentOptimizer(learning_rate = learning_rate).minimize(loss)
+        #optimizer = tf.train.AdadeltaOptimizer(learning_rate = learning_rate).minimize(loss)
         init = tf.global_variables_initializer()
         #sess = tf.Session(config = tf.ConfigProto(log_device_placement = True))
         sess = tf.Session()
@@ -228,12 +229,11 @@ def main():
             for learn_idx in learn:
                 batch_inputs, batch_labels = all_batches_inputs[learn_idx], all_batches_labels[learn_idx]
                 _, l = sess.run([optimizer, loss], feed_dict = {inputs: batch_inputs, labels: batch_labels})
-                loss_val += l
+                loss_val += (l * len(batch_inputs))
                 loss_cnt += len(batch_inputs)
                 #print l, len(batch_inputs)
             loss_val /= loss_cnt
             valid_loss = sess.run([loss], feed_dict = {inputs: valid_inputs, labels: valid_labels})[0]
-            valid_loss /= len(valid_inputs)
             if epoch % print_freq == 0 or loss_val < eps:
                 try:
                     shutil.copy(dump_path, dump_path + ".bak")
