@@ -41,7 +41,7 @@ def main():
         url, queue = queue[:1] + [queue[1:]]
         fd = urllib.urlopen(url)
         addr = urlparse.urlparse(url)
-        process_page(fd.read(), url, addr, queue, visited, path, number)
+        process_page(fd.read().decode("windows-1251"), url, addr, queue, visited, path, number)
         number += 1
 
 
