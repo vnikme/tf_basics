@@ -32,8 +32,8 @@ def read_data(path, min_freq):
     freqs = {}
     for w in data:
         freqs[w] = freqs.get(w, 0) + 1
-    word2id = {}
-    id2word = []
+    word2id = {"<unk>": 0}
+    id2word = ["<unk>"]
     for w in data:
         if freqs[w] < min_freq:
             w = "<unk>"
@@ -172,12 +172,12 @@ class TWord2Vec:
 
 # do all stuff
 def main():
-    with tf.device('/cpu:0'):
+    #with tf.device('/gpu:0'):
         # define params
         params = sys.argv[1:]
         input_path, dump_path, params = params[:2] + [params[2:]]
         learning_rate, eps, valid_part, params = map(float, params[:3]) + [params[3:]]
-        embedding_size, batch_size, min_freq, num_sampled, context_width, count_of_nearest, print_freq, params = map(int, params[:7]) + [params[7:]]
+        embedding_size, batch_size, min_freq, num_sampled, context_width, count_of_nearest, print_freq, save_freq, params = map(int, params[:8]) + [params[8:]]
         words, params = params[:4], params[4:]
         learning_rate /= batch_size
         # read data, make indexes word <-> id
@@ -233,13 +233,14 @@ def main():
                 loss_cnt += len(batch_inputs)
                 #print l, len(batch_inputs)
             loss_val /= loss_cnt
-            valid_loss = sess.run([loss], feed_dict = {inputs: valid_inputs, labels: valid_labels})[0]
+            valid_loss = sess.run([loss], feed_dict = {inputs: valid_inputs, labels: valid_labels})[0] if len(valid_inputs) > 0 else 0.0
             if epoch % print_freq == 0 or loss_val < eps:
-                try:
-                    shutil.copy(dump_path, dump_path + ".bak")
-                except:
-                    pass
-                w2v.Save(dump_path, sess)
+                if epoch % save_freq == 0 or loss_val < eps:
+                    try:
+                        shutil.copy(dump_path, dump_path + ".bak")
+                    except:
+                        pass
+                    w2v.Save(dump_path, sess)
                 pred = sess.run([embed_tensor], feed_dict = {inputs: [w2v.Word2Id[t] for t in words]})
                 a = [float(t) for t in pred[0][0] - pred[0][1]]
                 b = [float(t) for t in pred[0][2] - pred[0][3]]
@@ -258,6 +259,7 @@ def main():
                 print
             if loss_val < eps:
                 break
+            epoch += 1
 
 
 # entry point
