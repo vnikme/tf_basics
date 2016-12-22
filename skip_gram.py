@@ -52,8 +52,8 @@ def print_data_stats(data, words, w2v):
     idx = d.keys()
     idx.sort(key = lambda x: -d[x])
     lens = {}
-    #for word in idx[:100]:
-    #    print word
+    for word in idx[:100]:
+        print word
     print len(data), len(w2v.Id2Word)
     #for word in d.keys():
     #    l = d[word]
@@ -92,8 +92,7 @@ def get_vector_norm(a):
 
 
 # operation to calculate distance from certain word
-def create_cos_dist(a, b, c, inputs, embed_weights):
-    d = tf.nn.embedding_lookup(embed_weights, inputs)
+def create_cos_dist(a, b, c, d):
     b = tf.subtract(b, a)
     d = tf.subtract(d, c)
     b = tf.divide(b, tf.transpose([get_vector_norm(b)]))
@@ -102,23 +101,23 @@ def create_cos_dist(a, b, c, inputs, embed_weights):
 
 
 # print nearest words
-def print_analogy(a, b, c, inputs, embed_weights, id2word, sess, count):
-    dist = create_cos_dist(a, b, c, inputs, embed_weights)
+def print_analogy(a, b, c, inputs, embed_tensor, id2word, sess, count):
+    dist = create_cos_dist(a, b, c, embed_tensor)
     dist, idx = sess.run(tf.nn.top_k(dist, count), feed_dict = {inputs: range(len(id2word))})
     print "   ".join(["%s (%.3f)" % (id2word[idx[i]], dist[i]) for i in xrange(len(idx))])
 
 
 # l2 distance between vectors
-def create_l2_dist(embed_weights, inputs, target):
-    dist = tf.nn.embedding_lookup(embed_weights, inputs)
+def create_l2_dist(embed_tensor, target):
+    dist = embed_tensor
     dist = tf.add(dist, [-t for t in target])
     dist = -tf.sqrt(tf.reduce_sum(tf.mul(dist, dist), 1))
     return dist
  
  
  # print nearest words
-def print_nearest(embed_weights, inputs, id2word, sess, target, count):
-    dist = create_l2_dist(embed_weights, inputs, target)
+def print_nearest(embed_tensor, inputs, id2word, sess, target, count):
+    dist = create_l2_dist(embed_tensor, target)
     _, idx = sess.run(tf.nn.top_k(dist, count), feed_dict = {inputs: range(len(id2word))})
     print " ".join([id2word[t] for t in idx])
 
@@ -176,10 +175,10 @@ def main():
         # define params
         params = sys.argv[1:]
         input_path, dump_path, params = params[:2] + [params[2:]]
-        learning_rate, eps, valid_part, params = map(float, params[:3]) + [params[3:]]
-        embedding_size, batch_size, min_freq, num_sampled, context_width, count_of_nearest, print_freq, save_freq, params = map(int, params[:8]) + [params[8:]]
+        learning_rate, eps, params = map(float, params[:2]) + [params[2:]]
+        embedding_size, batch_size, valid_size, min_freq, num_sampled, context_width, count_of_nearest, print_freq, save_freq, params = map(int, params[:9]) + [params[9:]]
         words, params = params[:4], params[4:]
-        learning_rate /= batch_size
+        #learning_rate /= batch_size
         # read data, make indexes word <-> id
         w2v = TWord2Vec()
         data, w2v.Word2Id, w2v.Id2Word = read_data(input_path, min_freq)
@@ -195,6 +194,7 @@ def main():
         labels = tf.placeholder(tf.int32, shape = [None, 1])
         # tensor for 'input->embedding' transform
         embed_tensor = tf.nn.embedding_lookup(w2v.EmbeddingWeights, inputs)
+        embed_tensor = tf.nn.sigmoid(embed_tensor)
         # define loss
         loss = tf.reduce_mean(
                     tf.nn.nce_loss(weights = w2v.NCEWeights,
@@ -202,9 +202,21 @@ def main():
                                    labels = labels,
                                    inputs = embed_tensor,
                                    num_sampled = num_sampled,
-                                   num_classes = vocabulary_size
+                                   num_classes = vocabulary_size,
+                                   remove_accidental_hits = True
                                   )
                              )
+        with tf.device('/cpu:0'):
+            full_loss = tf.reduce_mean(
+                        tf.nn.nce_loss(weights = w2v.NCEWeights,
+                                       biases = w2v.NCEBiases,
+                                       labels = labels,
+                                       inputs = embed_tensor,
+                                       num_sampled = vocabulary_size,
+                                       num_classes = vocabulary_size,
+                                       remove_accidental_hits = True
+                                      )
+                                 )
         optimizer = tf.train.GradientDescentOptimizer(learning_rate = learning_rate).minimize(loss)
         #optimizer = tf.train.AdadeltaOptimizer(learning_rate = learning_rate).minimize(loss)
         init = tf.global_variables_initializer()
@@ -213,29 +225,25 @@ def main():
         sess.run(init)
         # generate all batches
         all_inputs, all_labels = generate_batch(data, w2v.Word2Id, context_width, 1.0)
+        idx = range(len(all_inputs))
+        random.shuffle(idx)
+        valid_inputs = [all_inputs[i] for i in idx[:valid_size]]
+        valid_labels = [all_labels[i] for i in idx[:valid_size]]
+        all_inputs = [all_inputs[i] for i in idx[valid_size:]]
+        all_labels = [all_labels[i] for i in idx[valid_size:]]
         all_batches_inputs, all_batches_labels = [], []
         for i in xrange(0, len(all_inputs), batch_size):
             all_batches_inputs.append(all_inputs[i:i+batch_size])
             all_batches_labels.append(all_labels[i:i+batch_size])
         batches_count = len(all_batches_inputs)
-        learn = range(batches_count)
-        random.shuffle(learn)
-        valid, learn = learn[:int(batches_count * valid_part)], learn[int(batches_count * valid_part):]
-        valid_inputs = sum([all_batches_inputs[t] for t in valid], [])
-        valid_labels = sum([all_batches_labels[t] for t in valid], [])
+        print len(all_inputs), len(valid_inputs), batches_count
         epoch = 0
         while True:
-            loss_val, loss_cnt = 0.0, 1e-38
-            for learn_idx in learn:
-                batch_inputs, batch_labels = all_batches_inputs[learn_idx], all_batches_labels[learn_idx]
-                _, l = sess.run([optimizer, loss], feed_dict = {inputs: batch_inputs, labels: batch_labels})
-                loss_val += (l * len(batch_inputs))
-                loss_cnt += len(batch_inputs)
-                #print l, len(batch_inputs)
-            loss_val /= loss_cnt
-            valid_loss = sess.run([loss], feed_dict = {inputs: valid_inputs, labels: valid_labels})[0] if len(valid_inputs) > 0 else 0.0
-            if epoch % print_freq == 0 or loss_val < eps:
-                if epoch % save_freq == 0 or loss_val < eps:
+            for batch_inputs, batch_labels in zip(all_batches_inputs, all_batches_labels):
+                sess.run([optimizer], feed_dict = {inputs: batch_inputs, labels: batch_labels})
+            valid_loss = sess.run([full_loss], feed_dict = {inputs: valid_inputs, labels: valid_labels})[0] / len(valid_inputs) if len(valid_inputs) > 0 else 0.0
+            if epoch % print_freq == 0:
+                if epoch % save_freq == 0 or valid_loss < eps:
                     try:
                         shutil.copy(dump_path, dump_path + ".bak")
                     except:
@@ -252,13 +260,13 @@ def main():
                 c_abs = math.sqrt(sum([t * t for t in c]))
                 a = [t / a_abs for t in a]
                 b = [t / b_abs for t in b]
-                print "%.2f\t%.2f\t%.4f\t%.4f\t%.4f\t%.4f" % (loss_val, valid_loss, sum([i * j for i, j in zip(a, b)]), a_abs, b_abs, c_abs)
-                print_analogy(pred[0][0], pred[0][1], pred[0][2], inputs, w2v.EmbeddingWeights, w2v.Id2Word, sess, count_of_nearest)
-                print_nearest(w2v.EmbeddingWeights, inputs, w2v.Id2Word, sess, d, count_of_nearest)
-                print_nearest(w2v.EmbeddingWeights, inputs, w2v.Id2Word, sess, e, count_of_nearest)
+                print "%.2f\t%.4f\t%.4f\t%.4f\t%.4f" % (valid_loss, sum([i * j for i, j in zip(a, b)]), a_abs, b_abs, c_abs)
+                print_analogy(pred[0][0], pred[0][1], pred[0][2], inputs, embed_tensor, w2v.Id2Word, sess, count_of_nearest)
+                print_nearest(embed_tensor, inputs, w2v.Id2Word, sess, d, count_of_nearest)
+                print_nearest(embed_tensor, inputs, w2v.Id2Word, sess, e, count_of_nearest)
                 print
-            if loss_val < eps:
-                break
+                if valid_loss < eps:
+                    break
             epoch += 1
 
 
