@@ -206,17 +206,16 @@ def main():
                                    remove_accidental_hits = True
                                   )
                              )
-        with tf.device('/cpu:0'):
-            full_loss = tf.reduce_mean(
-                        tf.nn.nce_loss(weights = w2v.NCEWeights,
-                                       biases = w2v.NCEBiases,
-                                       labels = labels,
-                                       inputs = embed_tensor,
-                                       num_sampled = vocabulary_size,
-                                       num_classes = vocabulary_size,
-                                       remove_accidental_hits = True
-                                      )
-                                 )
+        full_loss = tf.reduce_mean(
+                    tf.nn.nce_loss(weights = w2v.NCEWeights,
+                                   biases = w2v.NCEBiases,
+                                   labels = labels,
+                                   inputs = embed_tensor,
+                                   num_sampled = vocabulary_size,
+                                   num_classes = vocabulary_size,
+                                   remove_accidental_hits = True
+                                  )
+                             )
         optimizer = tf.train.GradientDescentOptimizer(learning_rate = learning_rate).minimize(loss)
         #optimizer = tf.train.AdadeltaOptimizer(learning_rate = learning_rate).minimize(loss)
         init = tf.global_variables_initializer()
@@ -241,7 +240,7 @@ def main():
         while True:
             for batch_inputs, batch_labels in zip(all_batches_inputs, all_batches_labels):
                 sess.run([optimizer], feed_dict = {inputs: batch_inputs, labels: batch_labels})
-            valid_loss = sess.run([full_loss], feed_dict = {inputs: valid_inputs, labels: valid_labels})[0] / len(valid_inputs) if len(valid_inputs) > 0 else 0.0
+            valid_loss = sess.run([full_loss], feed_dict = {inputs: valid_inputs, labels: valid_labels})[0] if len(valid_inputs) > 0 else 0.0
             if epoch % print_freq == 0:
                 if epoch % save_freq == 0 or valid_loss < eps:
                     try:
