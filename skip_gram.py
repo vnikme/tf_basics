@@ -3,7 +3,7 @@
 
 
 import tensorflow as tf
-import json, math, random, shutil, sys
+import json, math, numpy, random, shutil, sys
 
 
 # make lower case
@@ -18,42 +18,86 @@ def is_letter(ch):
     return ch in all_syms
 
 
-# read file, split words, return
-def read_data(path, min_freq):
-    data = []
+# read lines, yield symbols
+def iterate_symbols(path):
+    c = 0
+    for line in open(path):
+        c += 1
+        if c % 1000000 == 0:
+            print c / 1000000
+            sys.stdout.flush()
+            break
+        line = to_wide_lower(line)
+        for ch in line:
+            yield ch
+    yield " "
+
+
+# read symbols, split on words, yield
+def iterate_words(path):
     word = ""
-    for ch in to_wide_lower(open(path).read() + " "):
+    for ch in iterate_symbols(path):
         if not is_letter(ch):
             if len(word) != 0:
-                data.append(word.encode("utf-8"))
+                yield word.encode("utf-8")
             word = ""
         else:
             word += ch
-    freqs = {}
-    for w in data:
-        freqs[w] = freqs.get(w, 0) + 1
+
+
+# read file, split words, return
+def read_data(path, words_to_take):
+    data, id2word, word_freqs = [], ["<unk>"], [0]
     word2id = {"<unk>": 0}
-    id2word = ["<unk>"]
-    for w in data:
-        if freqs[w] < min_freq:
-            w = "<unk>"
-        if w in word2id:
-            continue
-        word2id[w] = len(id2word)
-        id2word.append(w)
-    return data, word2id, id2word
+    c = 0
+    for word in iterate_words(path):
+        c += 1
+        #if c == 1000:
+        #    break
+        if word not in word2id:
+            word2id[word] = len(id2word)
+            id2word.append(word)
+            word_freqs.append(0)
+            #print "%d\t%d\t%s" % (len(data), len(id2word), word)
+        id_ = word2id[word]
+        data.append(id_)
+        word_freqs[id_] += 1
+    print "Converting to ndarray"
+    sys.stdout.flush()
+    data = numpy.asarray(data)
+    print "Filtering input"
+    sys.stdout.flush()
+    n = len(word_freqs)
+    idx = range(n)
+    idx.sort(key = lambda x: -word_freqs[x])
+    min_freq = word_freqs[idx[min(words_to_take, len(word_freqs) - 1)]]
+    idx, new_id2word, new_word_freqs = [0] + [-1 for i in xrange(1, n)], ["<unk>"], [0]
+    for i in xrange(1, n):
+        if word_freqs[i] >= min_freq:
+            idx[i] = len(new_id2word)
+            new_id2word.append(id2word[i])
+            new_word_freqs.append(word_freqs[i])
+        else:
+            idx[i] = 0
+            new_word_freqs[0] += word_freqs[i]
+    id2word = new_id2word
+    word_freqs = new_word_freqs
+    for w in word2id.keys():
+        word2id[w] = idx[word2id[w]]
+    for i in xrange(len(data)):
+        data[i] = idx[data[i]]
+    print "Data read"
+    sys.stdout.flush()
+    return data, word2id, id2word, word_freqs
 
 
 # print some simple statistics
 def print_data_stats(data, words, w2v):
-    d = {}
-    for word in data:
-        d[word] = d.get(word, 0) + 1
-    idx = d.keys()
-    idx.sort(key = lambda x: -d[x])
+    idx = range(len(w2v.Id2Word))
+    idx.sort(key = lambda x: -w2v.WordFreqs[x])
     lens = {}
     for word in idx[:100]:
-        print word
+        print w2v.Id2Word[word], w2v.WordFreqs[word]
     print len(data), len(w2v.Id2Word)
     #for word in d.keys():
     #    l = d[word]
@@ -63,18 +107,16 @@ def print_data_stats(data, words, w2v):
     #exit(1)
 
 
-# make next batch
-def generate_batch(data, word2id, context_width, take_prob):
+# make arrays with learning data
+def generate_learning_data(data, context_width):
     inputs, labels = [], []
     n = len(data)
     for k in xrange(context_width, len(data) - context_width):
-        if random.random() > take_prob:
-            continue
-        word = word2id[data[k]] if data[k] in word2id else word2id["<unk>"]
+        word = data[k]
         for j in xrange(-context_width, context_width + 1):
             if j == 0:
                 continue
-            context_word = word2id[data[(k + j + n) % n]] if data[(k + j + n) % n] in word2id else word2id["<unk>"]
+            context_word = data[(k + j + n) % n]
             inputs.append(word)
             labels.append([context_word])
     return inputs, labels
@@ -127,6 +169,7 @@ class TWord2Vec:
     def __init__(self):
         self.Word2Id = {}
         self.Id2Word = []
+        self.WordFreqs = []
 
     def Init(self, embedding_size):
         vocabulary_size = len(self.Id2Word)
@@ -176,19 +219,20 @@ def main():
         params = sys.argv[1:]
         input_path, dump_path, params = params[:2] + [params[2:]]
         learning_rate, eps, params = map(float, params[:2]) + [params[2:]]
-        embedding_size, batch_size, valid_size, min_freq, num_sampled, context_width, count_of_nearest, print_freq, save_freq, params = map(int, params[:9]) + [params[9:]]
+        embedding_size, batch_size, valid_size, words_to_take, num_sampled, context_width, count_of_nearest, print_freq, save_freq, params = map(int, params[:9]) + [params[9:]]
         words, params = params[:4], params[4:]
         #learning_rate /= batch_size
         # read data, make indexes word <-> id
         w2v = TWord2Vec()
-        data, w2v.Word2Id, w2v.Id2Word = read_data(input_path, min_freq)
+        data, w2v.Word2Id, w2v.Id2Word, w2v.WordFreqs = read_data(input_path, words_to_take)
         if w2v.Load(dump_path):
             print "Loaded"
         else:
             print "Failed to load from '%s'" % dump_path
             w2v.Init(embedding_size)
+        sys.stdout.flush()
         print_data_stats(data, words, w2v)
-        vocabulary_size = len(w2v.Word2Id)
+        vocabulary_size = len(w2v.Id2Word)
         # input and output placeholders
         inputs = tf.placeholder(tf.int32, shape = [None])
         labels = tf.placeholder(tf.int32, shape = [None, 1])
@@ -223,7 +267,7 @@ def main():
         sess = tf.Session()
         sess.run(init)
         # generate all batches
-        all_inputs, all_labels = generate_batch(data, w2v.Word2Id, context_width, 1.0)
+        all_inputs, all_labels = generate_learning_data(data, context_width)
         idx = range(len(all_inputs))
         random.shuffle(idx)
         valid_inputs = [all_inputs[i] for i in idx[:valid_size]]
@@ -236,6 +280,7 @@ def main():
             all_batches_labels.append(all_labels[i:i+batch_size])
         batches_count = len(all_batches_inputs)
         print len(all_inputs), len(valid_inputs), batches_count
+        sys.stdout.flush()
         epoch = 0
         while True:
             for batch_inputs, batch_labels in zip(all_batches_inputs, all_batches_labels):
@@ -264,6 +309,7 @@ def main():
                 print_nearest(embed_tensor, inputs, w2v.Id2Word, sess, d, count_of_nearest)
                 print_nearest(embed_tensor, inputs, w2v.Id2Word, sess, e, count_of_nearest)
                 print
+                sys.stdout.flush()
                 if valid_loss < eps:
                     break
             epoch += 1
