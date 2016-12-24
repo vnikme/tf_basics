@@ -10,6 +10,6 @@ sum.py:
  Neural network for calculating sum and product of two numbers.
  Usage example (ends up within 30 minutes): ./sum.py 3 2 0.1 1024 100
 
-skip_grap.py:
+skip_gram.py:
  Word2vec implementation.
 
