@@ -69,11 +69,14 @@ def read_data(path, words_to_take):
     print "Filtering input"
     sys.stdout.flush()
     n = len(word_freqs)
-    idx = range(n)
-    idx.sort(key = lambda x: -word_freqs[x])
-    min_freq = word_freqs[idx[min(words_to_take, len(word_freqs) - 1)]]
+    fidx = range(n)
+    fidx.sort(key = lambda x: -word_freqs[x])
+    min_freq = word_freqs[fidx[min(words_to_take, len(word_freqs) - 1)]]
     idx, new_id2word, new_word_freqs = [0] + [-1 for i in xrange(1, n)], ["<unk>"], [0]
-    for i in xrange(1, n):
+    for k in xrange(n):
+        i = fidx[k]
+        if i == 0:
+            continue
         if word_freqs[i] >= min_freq:
             idx[i] = len(new_id2word)
             new_id2word.append(id2word[i])
@@ -111,20 +114,27 @@ def print_data_stats(data, words, w2v):
 
 # make arrays with learning data
 def generate_learning_data(data, context_width):
-    n = len(data)
-    idx = range(n - context_width * 2)
+    non_zero, total = 0, len(data)
+    for word in data[context_width:total - context_width]:
+        if word != 0:
+            non_zero += 1
+    idx = range(non_zero)
     random.shuffle(idx)
-    inputs, labels = numpy.ndarray([n - context_width * 2]), numpy.ndarray([n - context_width * 2, context_width * 2])
-    for k in xrange(context_width, n - context_width):
+    inputs, labels = numpy.ndarray([non_zero]), numpy.ndarray([non_zero, context_width * 2])
+    current = 0
+    for k in xrange(context_width, total - context_width):
         word = data[k]
-        inputs[idx[k - context_width]] = word
+        if word == 0:
+            continue
+        inputs[idx[current]] = word
         m = 0
         for j in xrange(-context_width, context_width + 1):
             if j == 0:
                 continue
             context_word = data[k + j]
-            labels[idx[k - context_width]][m] = context_word
+            labels[idx[current]][m] = context_word
             m += 1
+        current += 1
     return inputs, labels
 
 
@@ -248,24 +258,26 @@ def main():
         # define loss
         loss = tf.reduce_mean(
                     tf.nn.nce_loss(weights = w2v.NCEWeights,
+                    #-tf.nn.sampled_softmax_loss(weights = w2v.NCEWeights,
                                    biases = w2v.NCEBiases,
                                    labels = labels,
                                    inputs = embed_tensor,
                                    num_sampled = num_sampled,
                                    num_classes = vocabulary_size,
                                    num_true = context_width * 2,
-                                   remove_accidental_hits = False
+                                   #remove_accidental_hits = True
                                   )
                              )
         full_loss = tf.reduce_mean(
                     tf.nn.nce_loss(weights = w2v.NCEWeights,
+                    #tf.nn.sampled_softmax_loss(weights = w2v.NCEWeights,
                                    biases = w2v.NCEBiases,
                                    labels = labels,
                                    inputs = embed_tensor,
                                    num_sampled = vocabulary_size,
                                    num_classes = vocabulary_size,
                                    num_true = context_width * 2,
-                                   remove_accidental_hits = False
+                                   #remove_accidental_hits = True
                                   )
                              )
         optimizer = tf.train.GradientDescentOptimizer(learning_rate = learning_rate).minimize(loss)
@@ -303,6 +315,7 @@ def main():
             valid_loss = sess.run([full_loss], feed_dict = {inputs: valid_inputs, labels: valid_labels})[0] if len(valid_inputs) > 0 else 0.0
             if epoch % print_freq == 0:
                 if epoch % save_freq == 0 or valid_loss < eps:
+                #if epoch % save_freq == 0:
                     try:
                         shutil.copy(dump_path, dump_path + ".bak")
                     except:
