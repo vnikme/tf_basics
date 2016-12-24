@@ -26,7 +26,8 @@ def iterate_symbols(path):
         if c % 1000000 == 0:
             print c / 1000000
             sys.stdout.flush()
-            break
+            if c / 1000000 == 50:
+                break
         line = to_wide_lower(line)
         for ch in line:
             yield ch
@@ -99,6 +100,7 @@ def print_data_stats(data, words, w2v):
     for word in idx[:100]:
         print w2v.Id2Word[word], w2v.WordFreqs[word]
     print len(data), len(w2v.Id2Word)
+    sys.stdout.flush()
     #for word in d.keys():
     #    l = d[word]
     #    lens[l] = lens.get(l, 0) + 1
@@ -109,16 +111,20 @@ def print_data_stats(data, words, w2v):
 
 # make arrays with learning data
 def generate_learning_data(data, context_width):
-    inputs, labels = [], []
     n = len(data)
-    for k in xrange(context_width, len(data) - context_width):
+    idx = range(n - context_width * 2)
+    random.shuffle(idx)
+    inputs, labels = numpy.ndarray([n - context_width * 2]), numpy.ndarray([n - context_width * 2, context_width * 2])
+    for k in xrange(context_width, n - context_width):
         word = data[k]
+        inputs[idx[k - context_width]] = word
+        m = 0
         for j in xrange(-context_width, context_width + 1):
             if j == 0:
                 continue
-            context_word = data[(k + j + n) % n]
-            inputs.append(word)
-            labels.append([context_word])
+            context_word = data[k + j]
+            labels[idx[k - context_width]][m] = context_word
+            m += 1
     return inputs, labels
 
 
@@ -235,7 +241,7 @@ def main():
         vocabulary_size = len(w2v.Id2Word)
         # input and output placeholders
         inputs = tf.placeholder(tf.int32, shape = [None])
-        labels = tf.placeholder(tf.int32, shape = [None, 1])
+        labels = tf.placeholder(tf.int32, shape = [None, context_width * 2])
         # tensor for 'input->embedding' transform
         embed_tensor = tf.nn.embedding_lookup(w2v.EmbeddingWeights, inputs)
         embed_tensor = tf.nn.sigmoid(embed_tensor)
@@ -247,7 +253,8 @@ def main():
                                    inputs = embed_tensor,
                                    num_sampled = num_sampled,
                                    num_classes = vocabulary_size,
-                                   remove_accidental_hits = True
+                                   num_true = context_width * 2,
+                                   remove_accidental_hits = False
                                   )
                              )
         full_loss = tf.reduce_mean(
@@ -257,7 +264,8 @@ def main():
                                    inputs = embed_tensor,
                                    num_sampled = vocabulary_size,
                                    num_classes = vocabulary_size,
-                                   remove_accidental_hits = True
+                                   num_true = context_width * 2,
+                                   remove_accidental_hits = False
                                   )
                              )
         optimizer = tf.train.GradientDescentOptimizer(learning_rate = learning_rate).minimize(loss)
@@ -268,18 +276,25 @@ def main():
         sess.run(init)
         # generate all batches
         all_inputs, all_labels = generate_learning_data(data, context_width)
-        idx = range(len(all_inputs))
-        random.shuffle(idx)
-        valid_inputs = [all_inputs[i] for i in idx[:valid_size]]
-        valid_labels = [all_labels[i] for i in idx[:valid_size]]
-        all_inputs = [all_inputs[i] for i in idx[valid_size:]]
-        all_labels = [all_labels[i] for i in idx[valid_size:]]
+        del data
+        valid_inputs = all_inputs[:valid_size]
+        valid_labels = all_labels[:valid_size]
+        all_inputs = all_inputs[valid_size:]
+        all_labels = all_labels[valid_size:]
         all_batches_inputs, all_batches_labels = [], []
         for i in xrange(0, len(all_inputs), batch_size):
             all_batches_inputs.append(all_inputs[i:i+batch_size])
             all_batches_labels.append(all_labels[i:i+batch_size])
         batches_count = len(all_batches_inputs)
         print len(all_inputs), len(valid_inputs), batches_count
+        sys.stdout.flush()
+        all_batches_inputs = numpy.asarray(all_batches_inputs)
+        all_batches_labels = numpy.asarray(all_batches_labels)
+        valid_inputs = numpy.asarray(valid_inputs)
+        valid_labels = numpy.asarray(valid_labels)
+        del all_inputs
+        del all_labels
+        print "Begin training"
         sys.stdout.flush()
         epoch = 0
         while True:
