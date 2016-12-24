@@ -189,8 +189,11 @@ class TWord2Vec:
 
     def Init(self, embedding_size):
         vocabulary_size = len(self.Id2Word)
+        hidden_size = 4 * embedding_size
         self.EmbeddingWeights = tf.Variable(tf.random_uniform([vocabulary_size, embedding_size], -1.0, 1.0))
-        self.NCEWeights = tf.Variable(tf.truncated_normal([vocabulary_size, embedding_size], stddev=1.0 / math.sqrt(embedding_size)))
+        self.HiddenWeights = tf.Variable(tf.truncated_normal([embedding_size, hidden_size], stddev=1.0 / math.sqrt(embedding_size)))
+        self.HiddenBiases = tf.Variable(tf.zeros([hidden_size]))
+        self.NCEWeights = tf.Variable(tf.truncated_normal([vocabulary_size, hidden_size], stddev=1.0 / math.sqrt(hidden_size)))
         self.NCEBiases = tf.Variable(tf.zeros([vocabulary_size]))
 
     def CheckWordListConsistency(self, data):
@@ -202,6 +205,7 @@ class TWord2Vec:
         return True
 
     def Load(self, path):
+        return False
         try:
             s = open(path, "rt").read()
         except:
@@ -214,6 +218,8 @@ class TWord2Vec:
         #self.Word2Id = data["Word2Id"]
         #self.Id2Word = data["Id2Word"]
         self.EmbeddingWeights = tf.Variable(data["EmbeddingWeights"])
+        self.HiddenWeights = tf.Variable(data["HiddenWeights"])
+        self.HiddenBiases = tf.Variable(data["HiddenBiases"])
         self.NCEWeights = tf.Variable(data["NCEWeights"])
         self.NCEBiases = tf.Variable(data["NCEBiases"])
         return True
@@ -223,6 +229,8 @@ class TWord2Vec:
         data["Word2Id"] = self.Word2Id
         data["Id2Word"] = self.Id2Word
         data["EmbeddingWeights"] = sess.run(self.EmbeddingWeights).tolist()
+        data["HiddenWeights"] = sess.run(self.HiddenWeights).tolist()
+        data["HiddenBiases"] = sess.run(self.HiddenBiases).tolist()
         data["NCEWeights"] = sess.run(self.NCEWeights).tolist()
         data["NCEBiases"] = sess.run(self.NCEBiases).tolist()
         open(path, "wt").write(json.dumps(data))
@@ -256,12 +264,14 @@ def main():
         embed_tensor = tf.nn.embedding_lookup(w2v.EmbeddingWeights, inputs)
         embed_tensor = tf.nn.sigmoid(embed_tensor)
         # define loss
+        hidden = tf.add(tf.matmul(embed_tensor, w2v.HiddenWeights), w2v.HiddenBiases)
+        hidden = tf.nn.sigmoid(hidden)
         loss = tf.reduce_mean(
-                    tf.nn.nce_loss(weights = w2v.NCEWeights,
-                    #-tf.nn.sampled_softmax_loss(weights = w2v.NCEWeights,
+                    #tf.nn.nce_loss(weights = w2v.NCEWeights,
+                    tf.nn.sampled_softmax_loss(weights = w2v.NCEWeights,
                                    biases = w2v.NCEBiases,
                                    labels = labels,
-                                   inputs = embed_tensor,
+                                   inputs = hidden,
                                    num_sampled = num_sampled,
                                    num_classes = vocabulary_size,
                                    num_true = context_width * 2,
@@ -269,15 +279,15 @@ def main():
                                   )
                              )
         full_loss = tf.reduce_mean(
-                    tf.nn.nce_loss(weights = w2v.NCEWeights,
-                    #tf.nn.sampled_softmax_loss(weights = w2v.NCEWeights,
+                    #tf.nn.nce_loss(weights = w2v.NCEWeights,
+                    tf.nn.sampled_softmax_loss(weights = w2v.NCEWeights,
                                    biases = w2v.NCEBiases,
                                    labels = labels,
-                                   inputs = embed_tensor,
+                                   inputs = hidden,
                                    num_sampled = vocabulary_size,
                                    num_classes = vocabulary_size,
                                    num_true = context_width * 2,
-                                   #remove_accidental_hits = True
+                                   #remove_accidental_hits = False
                                   )
                              )
         optimizer = tf.train.GradientDescentOptimizer(learning_rate = learning_rate).minimize(loss)
