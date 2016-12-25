@@ -150,7 +150,16 @@ def get_vector_norm(a):
 
 
 # operation to calculate distance from certain word
-def create_cos_dist(a, b, c, d):
+def create_cos_dist1(a, b, c, d):
+    a = tf.divide(a, tf.transpose([get_vector_norm(a)]))
+    b = tf.divide(b, tf.transpose([get_vector_norm(b)]))
+    c = tf.divide(c, tf.transpose([get_vector_norm(c)]))
+    c = tf.add(c, tf.subtract(b, a))
+    c = tf.divide(c, tf.transpose([get_vector_norm(c)]))
+    d = tf.divide(d, tf.transpose([get_vector_norm(d)]))
+    return tf.reduce_sum(tf.mul(c, d), 1)
+
+def create_cos_dist2(a, b, c, d):
     b = tf.subtract(b, a)
     d = tf.subtract(d, c)
     b = tf.divide(b, tf.transpose([get_vector_norm(b)]))
@@ -159,8 +168,13 @@ def create_cos_dist(a, b, c, d):
 
 
 # print nearest words
-def print_analogy(a, b, c, inputs, embed_tensor, id2word, sess, count):
-    dist = create_cos_dist(a, b, c, embed_tensor)
+def print_analogy1(a, b, c, inputs, embed_tensor, id2word, sess, count):
+    dist = create_cos_dist1(a, b, c, embed_tensor)
+    dist, idx = sess.run(tf.nn.top_k(dist, count), feed_dict = {inputs: range(len(id2word))})
+    print "   ".join(["%s (%.3f)" % (id2word[idx[i]], dist[i]) for i in xrange(len(idx))])
+
+def print_analogy2(a, b, c, inputs, embed_tensor, id2word, sess, count):
+    dist = create_cos_dist2(a, b, c, embed_tensor)
     dist, idx = sess.run(tf.nn.top_k(dist, count), feed_dict = {inputs: range(len(id2word))})
     print "   ".join(["%s (%.3f)" % (id2word[idx[i]], dist[i]) for i in xrange(len(idx))])
 
@@ -168,6 +182,7 @@ def print_analogy(a, b, c, inputs, embed_tensor, id2word, sess, count):
 # l2 distance between vectors
 def create_l2_dist(embed_tensor, target):
     dist = embed_tensor
+    #dist = tf.divide(dist, tf.transpose([get_vector_norm(dist)]))
     dist = tf.add(dist, [-t for t in target])
     dist = -tf.sqrt(tf.reduce_sum(tf.mul(dist, dist), 1))
     return dist
@@ -176,8 +191,8 @@ def create_l2_dist(embed_tensor, target):
  # print nearest words
 def print_nearest(embed_tensor, inputs, id2word, sess, target, count):
     dist = create_l2_dist(embed_tensor, target)
-    _, idx = sess.run(tf.nn.top_k(dist, count), feed_dict = {inputs: range(len(id2word))})
-    print " ".join([id2word[t] for t in idx])
+    dist, idx = sess.run(tf.nn.top_k(dist, count), feed_dict = {inputs: range(len(id2word))})
+    print "   ".join(["%s (%.3f)" % (id2word[idx[i]], -dist[i]) for i in xrange(len(idx))])
 
 
 # class for matching word<->id and storing matrixes
@@ -189,11 +204,13 @@ class TWord2Vec:
 
     def Init(self, embedding_size):
         vocabulary_size = len(self.Id2Word)
-        hidden_size = 4 * embedding_size
-        self.EmbeddingWeights = tf.Variable(tf.random_uniform([vocabulary_size, embedding_size], -1.0, 1.0))
-        self.HiddenWeights = tf.Variable(tf.truncated_normal([embedding_size, hidden_size], stddev=1.0 / math.sqrt(embedding_size)))
+        hidden_size = embedding_size # * 4
+        self.EmbeddingWeights = tf.Variable(tf.random_uniform([vocabulary_size, embedding_size], -0.01, 0.01))
+        #self.HiddenWeights = tf.Variable(tf.truncated_normal([embedding_size, hidden_size], stddev=1.0 / math.sqrt(embedding_size)))
+        self.HiddenWeights = tf.Variable(tf.random_uniform([embedding_size, hidden_size], -0.01, 0.01))
         self.HiddenBiases = tf.Variable(tf.zeros([hidden_size]))
-        self.NCEWeights = tf.Variable(tf.truncated_normal([vocabulary_size, hidden_size], stddev=1.0 / math.sqrt(hidden_size)))
+        #self.NCEWeights = tf.Variable(tf.truncated_normal([vocabulary_size, hidden_size], stddev=1.0 / math.sqrt(hidden_size)))
+        self.NCEWeights = tf.Variable(tf.random_normal([vocabulary_size, hidden_size], -0.01, 0.01))
         self.NCEBiases = tf.Variable(tf.zeros([vocabulary_size]))
 
     def CheckWordListConsistency(self, data):
@@ -225,6 +242,7 @@ class TWord2Vec:
         return True
 
     def Save(self, path, sess):
+        return
         data = {}
         data["Word2Id"] = self.Word2Id
         data["Id2Word"] = self.Id2Word
@@ -234,6 +252,13 @@ class TWord2Vec:
         data["NCEWeights"] = sess.run(self.NCEWeights).tolist()
         data["NCEBiases"] = sess.run(self.NCEBiases).tolist()
         open(path, "wt").write(json.dumps(data))
+
+
+def normalize_vector(x):
+    x = [float(t) for t in x]
+    x_abs = math.sqrt(sum([t * t for t in x]))
+    x = [t / x_abs for t in x]
+    return x
 
 
 # do all stuff
@@ -262,10 +287,11 @@ def main():
         labels = tf.placeholder(tf.int32, shape = [None, context_width * 2])
         # tensor for 'input->embedding' transform
         embed_tensor = tf.nn.embedding_lookup(w2v.EmbeddingWeights, inputs)
-        embed_tensor = tf.nn.sigmoid(embed_tensor)
+        #embed_tensor = tf.nn.sigmoid(embed_tensor)
         # define loss
-        hidden = tf.add(tf.matmul(embed_tensor, w2v.HiddenWeights), w2v.HiddenBiases)
-        hidden = tf.nn.sigmoid(hidden)
+        hidden = embed_tensor
+        #hidden = tf.add(tf.matmul(embed_tensor, w2v.HiddenWeights), w2v.HiddenBiases)
+        #hidden = tf.nn.sigmoid(hidden)
         loss = tf.reduce_mean(
                     #tf.nn.nce_loss(weights = w2v.NCEWeights,
                     tf.nn.sampled_softmax_loss(weights = w2v.NCEWeights,
@@ -331,21 +357,18 @@ def main():
                     except:
                         pass
                     w2v.Save(dump_path, sess)
-                pred = sess.run([embed_tensor], feed_dict = {inputs: [w2v.Word2Id[t] for t in words]})
-                a = [float(t) for t in pred[0][0] - pred[0][1]]
-                b = [float(t) for t in pred[0][2] - pred[0][3]]
-                c = [float(t) for t in pred[0][0] - pred[0][1] - pred[0][2] + pred[0][3]]
-                d = [float(t) for t in pred[0][2] + pred[0][1] - pred[0][0]]
-                e = [float(t) for t in pred[0][0]]
-                a_abs = math.sqrt(sum([t * t for t in a]))
-                b_abs = math.sqrt(sum([t * t for t in b]))
-                c_abs = math.sqrt(sum([t * t for t in c]))
-                a = [t / a_abs for t in a]
-                b = [t / b_abs for t in b]
-                print "%.2f\t%.4f\t%.4f\t%.4f\t%.4f" % (valid_loss, sum([i * j for i, j in zip(a, b)]), a_abs, b_abs, c_abs)
-                print_analogy(pred[0][0], pred[0][1], pred[0][2], inputs, embed_tensor, w2v.Id2Word, sess, count_of_nearest)
-                print_nearest(embed_tensor, inputs, w2v.Id2Word, sess, d, count_of_nearest)
-                print_nearest(embed_tensor, inputs, w2v.Id2Word, sess, e, count_of_nearest)
+                nemb = tf.sigmoid(embed_tensor)
+                pred = sess.run([nemb], feed_dict = {inputs: [w2v.Word2Id[t] for t in words]})[0]
+                a, b, c, d = [[pred[i][j] for j in xrange(len(pred[i]))] for i in xrange(len(pred))]
+                e = [c[i] - a[i] + b[i] for i in xrange(len(a))]
+                print "%.2f" % (valid_loss)
+                for v in [a, b, c, d, e]:
+                    print "\t".join(map(lambda x: "%.2f" % x, v))
+                print_analogy1(a, b, c, inputs, nemb, w2v.Id2Word, sess, count_of_nearest)
+                print_analogy2(a, b, c, inputs, nemb, w2v.Id2Word, sess, count_of_nearest)
+                print_nearest(nemb, inputs, w2v.Id2Word, sess, e, count_of_nearest)
+                print_nearest(nemb, inputs, w2v.Id2Word, sess, d, count_of_nearest)
+                print
                 print
                 sys.stdout.flush()
                 if valid_loss < eps:
