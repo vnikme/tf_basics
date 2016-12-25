@@ -23,10 +23,10 @@ def iterate_symbols(path):
     c = 0
     for line in open(path):
         c += 1
-        if c % 1000000 == 0:
+        if c % 100000 == 0:
             print c / 1000000
             sys.stdout.flush()
-            if c / 1000000 == 50:
+            if c / 100000 == 50:
                 break
         line = to_wide_lower(line)
         for ch in line:
@@ -166,15 +166,25 @@ def create_cos_dist2(a, b, c, d):
     d = tf.divide(d, tf.transpose([get_vector_norm(d)]))
     return tf.reduce_sum(tf.mul(b, d), 1)
 
+def create_cos_dist3(a, b, c, d):
+    b = tf.sigmoid(tf.subtract(b, a))
+    d = tf.sigmoid(tf.subtract(d, c))
+    b = tf.divide(b, tf.transpose([get_vector_norm(b)]))
+    d = tf.divide(d, tf.transpose([get_vector_norm(d)]))
+    return tf.reduce_sum(tf.mul(b, d), 1)
+
+def create_cos_dist4(a, b, c, d):
+    b = tf.sigmoid(tf.subtract(b, a))
+    d = tf.sigmoid(tf.subtract(d, c))
+    d = tf.subtract(d, b)
+    d = tf.mul(d, d)
+    d = -tf.sqrt(d)
+    return tf.reduce_sum(d, 1)
+
 
 # print nearest words
-def print_analogy1(a, b, c, inputs, embed_tensor, id2word, sess, count):
-    dist = create_cos_dist1(a, b, c, embed_tensor)
-    dist, idx = sess.run(tf.nn.top_k(dist, count), feed_dict = {inputs: range(len(id2word))})
-    print "   ".join(["%s (%.3f)" % (id2word[idx[i]], dist[i]) for i in xrange(len(idx))])
-
-def print_analogy2(a, b, c, inputs, embed_tensor, id2word, sess, count):
-    dist = create_cos_dist2(a, b, c, embed_tensor)
+def print_analogy(a, b, c, inputs, dist_func, embed_tensor, id2word, sess, count):
+    dist = dist_func(a, b, c, embed_tensor)
     dist, idx = sess.run(tf.nn.top_k(dist, count), feed_dict = {inputs: range(len(id2word))})
     print "   ".join(["%s (%.3f)" % (id2word[idx[i]], dist[i]) for i in xrange(len(idx))])
 
@@ -358,18 +368,24 @@ def main():
                         pass
                     w2v.Save(dump_path, sess)
                 nemb = tf.sigmoid(embed_tensor)
-                pred = sess.run([nemb], feed_dict = {inputs: [w2v.Word2Id[t] for t in words]})[0]
+                pred, npred = sess.run([embed_tensor, nemb], feed_dict = {inputs: [w2v.Word2Id[t] for t in words]})
                 a, b, c, d = [[pred[i][j] for j in xrange(len(pred[i]))] for i in xrange(len(pred))]
+                na, nb, nc, nd = [[npred[i][j] for j in xrange(len(npred[i]))] for i in xrange(len(npred))]
                 e = [c[i] - a[i] + b[i] for i in xrange(len(a))]
+                ne = [nc[i] - na[i] + nb[i] for i in xrange(len(na))]
                 print "%.2f" % (valid_loss)
-                for v in [a, b, c, d, e]:
+                for v in [na, nb, nc, nd, ne]:
                     print "\t".join(map(lambda x: "%.2f" % x, v))
-                print_analogy1(a, b, c, inputs, nemb, w2v.Id2Word, sess, count_of_nearest)
-                print_analogy2(a, b, c, inputs, nemb, w2v.Id2Word, sess, count_of_nearest)
-                print_nearest(nemb, inputs, w2v.Id2Word, sess, e, count_of_nearest)
-                print_nearest(nemb, inputs, w2v.Id2Word, sess, d, count_of_nearest)
+
+                print_nearest(nemb, inputs, w2v.Id2Word, sess, nd, count_of_nearest)
+                print_analogy(na, nb, nc, inputs, create_cos_dist1, nemb, w2v.Id2Word, sess, count_of_nearest)
+                print_analogy(na, nb, nc, inputs, create_cos_dist2,  nemb, w2v.Id2Word, sess, count_of_nearest)
+                print_analogy(a, b, c, inputs, create_cos_dist3, embed_tensor, w2v.Id2Word, sess, count_of_nearest)
+                print_nearest(nemb, inputs, w2v.Id2Word, sess, ne, count_of_nearest)
+                print_analogy(a, b, c, inputs, create_cos_dist4, embed_tensor, w2v.Id2Word, sess, count_of_nearest)
                 print
                 print
+
                 sys.stdout.flush()
                 if valid_loss < eps:
                     break
