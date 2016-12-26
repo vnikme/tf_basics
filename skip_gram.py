@@ -96,7 +96,7 @@ def read_data(path, words_to_take):
 
 
 # print some simple statistics
-def print_data_stats(data, words, w2v):
+def print_data_stats(data, w2v):
     idx = range(len(w2v.Id2Word))
     idx.sort(key = lambda x: -w2v.WordFreqs[x])
     lens = {}
@@ -271,6 +271,26 @@ def normalize_vector(x):
     return x
 
 
+def print_analogies(sess, embed_tensor, inputs, w2v, base_words, words, count_of_nearest):
+    nemb = tf.sigmoid(embed_tensor)
+    pred, npred = sess.run([embed_tensor, nemb], feed_dict = {inputs: [w2v.Word2Id[t] for t in (base_words + words)]})
+    print "%s\t%s\t%s\t%s" % (base_words[0], base_words[1], words[0], words[1])
+    a, b, c, d = [[pred[i][j] for j in xrange(len(pred[i]))] for i in xrange(len(pred))]
+    na, nb, nc, nd = [[npred[i][j] for j in xrange(len(npred[i]))] for i in xrange(len(npred))]
+    e = [c[i] - a[i] + b[i] for i in xrange(len(a))]
+    ne = [nc[i] - na[i] + nb[i] for i in xrange(len(na))]
+    for v in [na, nb, nc, nd, ne]:
+        print "\t".join(map(lambda x: "%.2f" % x, v))
+    print_nearest(nemb, inputs, w2v.Id2Word, sess, nd, count_of_nearest)
+    print_analogy(na, nb, nc, inputs, create_cos_dist1, nemb, w2v.Id2Word, sess, count_of_nearest)
+    print_analogy(na, nb, nc, inputs, create_cos_dist2,  nemb, w2v.Id2Word, sess, count_of_nearest)
+    print_analogy(a, b, c, inputs, create_cos_dist3, embed_tensor, w2v.Id2Word, sess, count_of_nearest)
+    print_nearest(nemb, inputs, w2v.Id2Word, sess, ne, count_of_nearest)
+    print_analogy(a, b, c, inputs, create_cos_dist4, embed_tensor, w2v.Id2Word, sess, count_of_nearest)
+    print
+    sys.stdout.flush()
+
+
 # do all stuff
 def main():
     #with tf.device('/gpu:0'):
@@ -279,7 +299,8 @@ def main():
         input_path, dump_path, params = params[:2] + [params[2:]]
         learning_rate, eps, params = map(float, params[:2]) + [params[2:]]
         embedding_size, batch_size, valid_size, words_to_take, num_sampled, context_width, count_of_nearest, print_freq, save_freq, params = map(int, params[:9]) + [params[9:]]
-        words, params = params[:4], params[4:]
+        base_words, words = params[:2], params[2:]
+        words = [[words[i], words[i + 1]] for i in xrange(0, len(words), 2)]
         #learning_rate /= batch_size
         # read data, make indexes word <-> id
         w2v = TWord2Vec()
@@ -290,7 +311,7 @@ def main():
             print "Failed to load from '%s'" % dump_path
             w2v.Init(embedding_size)
         sys.stdout.flush()
-        print_data_stats(data, words, w2v)
+        print_data_stats(data, w2v)
         vocabulary_size = len(w2v.Id2Word)
         # input and output placeholders
         inputs = tf.placeholder(tf.int32, shape = [None])
@@ -367,26 +388,11 @@ def main():
                     except:
                         pass
                     w2v.Save(dump_path, sess)
-                nemb = tf.sigmoid(embed_tensor)
-                pred, npred = sess.run([embed_tensor, nemb], feed_dict = {inputs: [w2v.Word2Id[t] for t in words]})
-                a, b, c, d = [[pred[i][j] for j in xrange(len(pred[i]))] for i in xrange(len(pred))]
-                na, nb, nc, nd = [[npred[i][j] for j in xrange(len(npred[i]))] for i in xrange(len(npred))]
-                e = [c[i] - a[i] + b[i] for i in xrange(len(a))]
-                ne = [nc[i] - na[i] + nb[i] for i in xrange(len(na))]
-                print "%.2f" % (valid_loss)
-                for v in [na, nb, nc, nd, ne]:
-                    print "\t".join(map(lambda x: "%.2f" % x, v))
 
-                print_nearest(nemb, inputs, w2v.Id2Word, sess, nd, count_of_nearest)
-                print_analogy(na, nb, nc, inputs, create_cos_dist1, nemb, w2v.Id2Word, sess, count_of_nearest)
-                print_analogy(na, nb, nc, inputs, create_cos_dist2,  nemb, w2v.Id2Word, sess, count_of_nearest)
-                print_analogy(a, b, c, inputs, create_cos_dist3, embed_tensor, w2v.Id2Word, sess, count_of_nearest)
-                print_nearest(nemb, inputs, w2v.Id2Word, sess, ne, count_of_nearest)
-                print_analogy(a, b, c, inputs, create_cos_dist4, embed_tensor, w2v.Id2Word, sess, count_of_nearest)
+                print "Validation loss:\t%.2f" % (valid_loss)
+                for pair in words:
+                    print_analogies(sess, embed_tensor, inputs, w2v, base_words, pair, count_of_nearest)
                 print
-                print
-
-                sys.stdout.flush()
                 if valid_loss < eps:
                     break
             epoch += 1
