@@ -23,10 +23,10 @@ def iterate_symbols(path):
     c = 0
     for line in open(path):
         c += 1
-        if c % 100000 == 0:
+        if c % 1000000 == 0:
             print c / 1000000
             sys.stdout.flush()
-            if c / 100000 == 50:
+            if c / 1000000 == 50:
                 break
         line = to_wide_lower(line)
         for ch in line:
@@ -232,7 +232,6 @@ class TWord2Vec:
         return True
 
     def Load(self, path):
-        return False
         try:
             s = open(path, "rt").read()
         except:
@@ -252,7 +251,6 @@ class TWord2Vec:
         return True
 
     def Save(self, path, sess):
-        return
         data = {}
         data["Word2Id"] = self.Word2Id
         data["Id2Word"] = self.Id2Word
