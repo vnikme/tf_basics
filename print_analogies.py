@@ -65,26 +65,27 @@ def print_analogies(sess, embed_tensor, inputs, w2v, base_words, words, count_of
 
 # do all stuff
 def main():
-    # define params
-    dump_path = sys.argv[1]
-    count_of_nearest = int(sys.argv[2])
-    base_words = sys.argv[3:5]
-    # load data
-    w2v = TWord2Vec()
-    if not w2v.Load(dump_path):
-        print "Failed to load from '%s'" % dump_path
-        return
-    # input and output placeholders
-    inputs = tf.placeholder(tf.int32, shape = [None])
-    # tensor for 'input->embedding' transform
-    embed_tensor = tf.nn.embedding_lookup(w2v.EmbeddingWeights, inputs)
-    sess = tf.Session()
-    init = tf.global_variables_initializer()
-    sess.run(init)
-    while True:
-        pair = []
-        pair.append(raw_input("Enter word: "))
-        print_analogies(sess, embed_tensor, inputs, w2v, base_words, pair, count_of_nearest)
+    with tf.device('/cpu:0'):
+        # define params
+        dump_path = sys.argv[1]
+        count_of_nearest = int(sys.argv[2])
+        base_words = sys.argv[3:5]
+        # load data
+        w2v = TWord2Vec()
+        if not w2v.Load(dump_path):
+            print "Failed to load from '%s'" % dump_path
+            return
+        # input and output placeholders
+        inputs = tf.placeholder(tf.int32, shape = [None])
+        # tensor for 'input->embedding' transform
+        embed_tensor = tf.nn.embedding_lookup(w2v.EmbeddingWeights, inputs)
+        sess = tf.Session()
+        init = tf.global_variables_initializer()
+        sess.run(init)
+        while True:
+            pair = []
+            pair.append(raw_input("Enter word: "))
+            print_analogies(sess, embed_tensor, inputs, w2v, base_words, pair, count_of_nearest)
 
 
 # entry point
