@@ -25,7 +25,15 @@ def create_cos_dist4(a, b, c, d):
     d = -tf.sqrt(d)
     return tf.reduce_sum(d, 1)
 
-
+# l2 distance between vectors
+def create_l2_dist(a, b, c, d):
+    b = tf.subtract(b, a)
+    d = tf.subtract(d, c)
+    dist = tf.subtract(b, d)
+    dist = -tf.sqrt(tf.reduce_sum(tf.mul(dist, dist), 1))
+    return dist
+ 
+ 
 # print nearest words
 def print_analogy(a, b, c, inputs, dist_func, embed_tensor, id2word, sess, count):
     dist = dist_func(a, b, c, embed_tensor)
@@ -60,6 +68,7 @@ def print_analogies(sess, embed_tensor, inputs, w2v, base_words, words, count_of
     for v in [a, b, c]:
         print "\t".join(map(lambda x: "%.2f" % x, v))
     print_analogy(a, b, c, inputs, create_cos_dist4, embed_tensor, w2v.Id2Word, sess, count_of_nearest)
+    print_analogy(a, b, c, inputs, create_l2_dist, embed_tensor, w2v.Id2Word, sess, count_of_nearest)
     print
 
 
