@@ -79,14 +79,15 @@ def get_analogy(sess, embed_tensor, inputs, dist_func, count_of_nearest, count_o
     dist = dist_func(a, b, c, embed_tensor)
     dist, idx = sess.run(tf.nn.top_k(dist, count_of_nearest), feed_dict = {inputs: range(len(w2v.Id2Word))})
     print "   ".join(["%s (%.3f)" % (w2v.Id2Word[idx[i]], dist[i]) for i in xrange(len(idx))])
+    back_c, back_dist = [], []
     for k in xrange(len(dist)):
-        back_c = predict_embeddings(sess, embed_tensor, inputs, w2v, [idx[k]])[0]
-        back_dist = dist_func(b, a, back_c, embed_tensor)
-        back_dist, back_idx = sess.run(tf.nn.top_k(back_dist, count_of_back_nearest), feed_dict = {inputs: range(len(w2v.Id2Word))})
-        for t in xrange(len(back_idx)):
-            if back_idx[t] != c_idx:
-                continue
-            print w2v.Id2Word[idx[k]], dist[k], back_dist[t], dist[k] + back_dist[t]
+        back_c.append(predict_embeddings(sess, embed_tensor, inputs, w2v, [idx[k]])[0])
+        back_dist.append(dist_func(b, a, back_c[k], embed_tensor))
+    res = sess.run([tf.nn.top_k(dst, count_of_back_nearest) for dst in back_dist], feed_dict = {inputs: range(len(w2v.Id2Word))})
+    for k in xrange(len(dist)):
+        if c_idx not in res[k][1]:
+            continue
+        print w2v.Id2Word[idx[k]], dist[k]
     print
 
 
