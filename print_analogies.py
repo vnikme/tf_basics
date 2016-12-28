@@ -62,13 +62,31 @@ class TWord2Vec:
         return True
 
 
-def print_analogies(sess, embed_tensor, inputs, w2v, base_words, words, count_of_nearest):
-    pred = sess.run([embed_tensor], feed_dict = {inputs: [w2v.Word2Id[t.decode("utf-8")] for t in (base_words + words)]})[0]
-    a, b, c = [[pred[i][j] for j in xrange(len(pred[i]))] for i in xrange(len(pred))]
+def predict_embeddings(sess, embed_tensor, inputs, w2v, words):
+    pred = sess.run([embed_tensor], feed_dict = {inputs: words})[0]
+    return [[pred[i][j] for j in xrange(len(pred[i]))] for i in xrange(len(pred))]
+
+
+def print_analogies(sess, embed_tensor, inputs, w2v, a, b, c, count_of_nearest):
     for v in [a, b, c]:
         print "\t".join(map(lambda x: "%.2f" % x, v))
     print_analogy(a, b, c, inputs, create_cos_dist4, embed_tensor, w2v.Id2Word, sess, count_of_nearest)
     print_analogy(a, b, c, inputs, create_l2_dist, embed_tensor, w2v.Id2Word, sess, count_of_nearest)
+    print
+
+
+def get_analogy(sess, embed_tensor, inputs, dist_func, count_of_nearest, count_of_back_nearest, w2v, a, b, c, c_idx):
+    dist = dist_func(a, b, c, embed_tensor)
+    dist, idx = sess.run(tf.nn.top_k(dist, count_of_nearest), feed_dict = {inputs: range(len(w2v.Id2Word))})
+    print "   ".join(["%s (%.3f)" % (w2v.Id2Word[idx[i]], dist[i]) for i in xrange(len(idx))])
+    for k in xrange(len(dist)):
+        back_c = predict_embeddings(sess, embed_tensor, inputs, w2v, [idx[k]])[0]
+        back_dist = dist_func(b, a, back_c, embed_tensor)
+        back_dist, back_idx = sess.run(tf.nn.top_k(back_dist, count_of_back_nearest), feed_dict = {inputs: range(len(w2v.Id2Word))})
+        for t in xrange(len(back_idx)):
+            if back_idx[t] != c_idx:
+                continue
+            print w2v.Id2Word[idx[k]], dist[k], back_dist[t], dist[k] + back_dist[t]
     print
 
 
@@ -77,8 +95,8 @@ def main():
     with tf.device('/cpu:0'):
         # define params
         dump_path = sys.argv[1]
-        count_of_nearest = int(sys.argv[2])
-        base_words = sys.argv[3:5]
+        count_of_nearest, count_of_back_nearest = map(int, sys.argv[2:4])
+        base_words = sys.argv[4:6]
         # load data
         w2v = TWord2Vec()
         if not w2v.Load(dump_path):
@@ -91,10 +109,14 @@ def main():
         sess = tf.Session()
         init = tf.global_variables_initializer()
         sess.run(init)
+        a, b = predict_embeddings(sess, embed_tensor, inputs, w2v, [w2v.Word2Id[t.decode("utf-8")] for t in base_words])
         while True:
-            pair = []
-            pair.append(raw_input("Enter word: "))
-            print_analogies(sess, embed_tensor, inputs, w2v, base_words, pair, count_of_nearest)
+            word = raw_input("Enter word: ")
+            c_idx = w2v.Word2Id[word.decode("utf-8")]
+            c = predict_embeddings(sess, embed_tensor, inputs, w2v, [c_idx])[0]
+            #print_analogies(sess, embed_tensor, inputs, w2v, a, b, c, count_of_nearest)
+            get_analogy(sess, embed_tensor, inputs, create_l2_dist, count_of_nearest, count_of_back_nearest, w2v, a, b, c, c_idx)
+            #get_analogy(sess, embed_tensor, inputs, create_cos_dist4, count_of_nearest, count_of_back_nearest, w2v, a, b, c, c_idx)
 
 
 # entry point
