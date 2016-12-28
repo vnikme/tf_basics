@@ -30,7 +30,7 @@ def iterate_symbols(path):
         if c % 1000000 == 0:
             print c / 1000000
             sys.stdout.flush()
-            #if c / 1000000 == 50:
+            #if c / 10000 >= 50:
             #    break
         line = to_wide_lower(line)
         for ch in line:
@@ -293,8 +293,8 @@ def print_analogies(sess, embed_tensor, inputs, w2v, base_words, words, count_of
     na, nb, nc, nd = [[npred[i][j] for j in xrange(len(npred[i]))] for i in xrange(len(npred))]
     e = [c[i] - a[i] + b[i] for i in xrange(len(a))]
     ne = [nc[i] - na[i] + nb[i] for i in xrange(len(na))]
-    for v in [na, nb, nc, nd, ne]:
-        print "\t".join(map(lambda x: "%.2f" % x, v))
+    #for v in [na, nb, nc, nd, ne]:
+    #    print "\t".join(map(lambda x: "%.2f" % x, v))
     print_nearest(nemb, inputs, w2v.Id2Word, sess, nd, count_of_nearest)
     print_analogy(na, nb, nc, inputs, create_cos_dist1, nemb, w2v.Id2Word, sess, count_of_nearest)
     print_analogy(na, nb, nc, inputs, create_cos_dist2,  nemb, w2v.Id2Word, sess, count_of_nearest)
@@ -327,6 +327,35 @@ def main():
         sys.stdout.flush()
         print_data_stats(data, w2v)
         vocabulary_size = len(w2v.Id2Word)
+        # generate all batches
+        all_inputs, all_labels = generate_learning_data(data, context_width)
+        del data
+        print "Learning data generated"
+        sys.stdout.flush()
+        valid_inputs = all_inputs[:valid_size]
+        valid_labels = all_labels[:valid_size]
+        valid_inputs = numpy.asarray(valid_inputs)
+        valid_labels = numpy.asarray(valid_labels)
+        all_inputs = all_inputs[valid_size:]
+        all_labels = all_labels[valid_size:]
+        all_batches_inputs, all_batches_labels = [], []
+        print "Converting inputs"
+        sys.stdout.flush()
+        for i in xrange(0, len(all_inputs), batch_size):
+            all_batches_inputs.append(all_inputs[i:i+batch_size])
+        batches_count = len(all_batches_inputs)
+        print len(all_inputs), len(valid_inputs), batches_count
+        sys.stdout.flush()
+        all_batches_inputs = numpy.asarray(all_batches_inputs)
+        del all_inputs
+        print "Converting labels"
+        sys.stdout.flush()
+        for i in xrange(0, len(all_labels), batch_size):
+            all_batches_labels.append(all_labels[i:i+batch_size])
+        all_batches_labels = numpy.asarray(all_batches_labels)
+        del all_labels
+        print "Creating tensors"
+        sys.stdout.flush()
         # input and output placeholders
         inputs = tf.placeholder(tf.int32, shape = [None])
         labels = tf.placeholder(tf.int32, shape = [None, context_width * 2])
@@ -368,33 +397,6 @@ def main():
         #sess = tf.Session(config = tf.ConfigProto(log_device_placement = True))
         sess = tf.Session()
         sess.run(init)
-        # generate all batches
-        all_inputs, all_labels = generate_learning_data(data, context_width)
-        del data
-        print "Learning data generated"
-        sys.stdout.flush()
-        valid_inputs = all_inputs[:valid_size]
-        valid_labels = all_labels[:valid_size]
-        valid_inputs = numpy.asarray(valid_inputs)
-        valid_labels = numpy.asarray(valid_labels)
-        all_inputs = all_inputs[valid_size:]
-        all_labels = all_labels[valid_size:]
-        all_batches_inputs, all_batches_labels = [], []
-        print "Converting inputs"
-        sys.stdout.flush()
-        for i in xrange(0, len(all_inputs), batch_size):
-            all_batches_inputs.append(all_inputs[i:i+batch_size])
-        batches_count = len(all_batches_inputs)
-        print len(all_inputs), len(valid_inputs), batches_count
-        sys.stdout.flush()
-        all_batches_inputs = numpy.asarray(all_batches_inputs)
-        del all_inputs
-        print "Converting labels"
-        sys.stdout.flush()
-        for i in xrange(0, len(all_labels), batch_size):
-            all_batches_labels.append(all_labels[i:i+batch_size])
-        all_batches_labels = numpy.asarray(all_batches_labels)
-        del all_labels
         print "Begin training"
         sys.stdout.flush()
         epoch = 0
