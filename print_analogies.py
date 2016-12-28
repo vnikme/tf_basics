@@ -115,8 +115,8 @@ def main():
             word = raw_input("Enter word: ")
             c_idx = w2v.Word2Id[word.decode("utf-8")]
             c = predict_embeddings(sess, embed_tensor, inputs, w2v, [c_idx])[0]
-            #print_analogies(sess, embed_tensor, inputs, w2v, a, b, c, count_of_nearest)
-            get_analogy(sess, embed_tensor, inputs, create_l2_dist, count_of_nearest, count_of_back_nearest, w2v, a, b, c, c_idx)
+            print_analogies(sess, embed_tensor, inputs, w2v, a, b, c, count_of_nearest)
+            #get_analogy(sess, embed_tensor, inputs, create_l2_dist, count_of_nearest, count_of_back_nearest, w2v, a, b, c, c_idx)
             #get_analogy(sess, embed_tensor, inputs, create_cos_dist4, count_of_nearest, count_of_back_nearest, w2v, a, b, c, c_idx)
 
 
