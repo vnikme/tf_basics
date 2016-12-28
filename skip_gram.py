@@ -13,7 +13,11 @@ def to_wide_lower(s):
     return s
 
 
-all_syms = "0123456789abcdefghijklmnopqrstuvwxyzабвгдеёжзийклмнопрстуфхцчшщъыьэюя".decode("utf-8")
+all_syms = "0123456789abcdefghijklmnopqrstuvwxyzабвгдеёжзийклмнопрстуфхцчшщъыьэюя-".decode("utf-8")
+allowed_syms = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-".decode("utf-8")
+tech_syms = "-".decode("utf-8")
+
+
 def is_letter(ch):
     return ch in all_syms
 
@@ -26,8 +30,8 @@ def iterate_symbols(path):
         if c % 1000000 == 0:
             print c / 1000000
             sys.stdout.flush()
-            if c / 1000000 == 50:
-                break
+            #if c / 1000000 == 50:
+            #    break
         line = to_wide_lower(line)
         for ch in line:
             yield ch
@@ -40,10 +44,21 @@ def iterate_words(path):
     for ch in iterate_symbols(path):
         if not is_letter(ch):
             if len(word) != 0:
-                yield word.encode("utf-8")
+                yield word
             word = ""
         else:
             word += ch
+
+
+# filter words by language
+def is_allowed_word(word):
+    tech_only = True
+    for ch in word:
+        if ch not in allowed_syms:
+            return False
+        if ch not in tech_syms:
+            tech_only = False
+    return not tech_only
 
 
 # read file, split words, return
@@ -53,8 +68,11 @@ def read_data(path, words_to_take):
     c = 0
     for word in iterate_words(path):
         c += 1
+        if not is_allowed_word(word):
+            continue
         #if c == 1000:
         #    break
+        word = word.encode("utf-8")
         if word not in word2id:
             word2id[word] = len(id2word)
             id2word.append(word)
@@ -216,10 +234,8 @@ class TWord2Vec:
         vocabulary_size = len(self.Id2Word)
         hidden_size = embedding_size # * 4
         self.EmbeddingWeights = tf.Variable(tf.random_uniform([vocabulary_size, embedding_size], -0.01, 0.01))
-        #self.HiddenWeights = tf.Variable(tf.truncated_normal([embedding_size, hidden_size], stddev=1.0 / math.sqrt(embedding_size)))
-        self.HiddenWeights = tf.Variable(tf.random_uniform([embedding_size, hidden_size], -0.01, 0.01))
-        self.HiddenBiases = tf.Variable(tf.zeros([hidden_size]))
-        #self.NCEWeights = tf.Variable(tf.truncated_normal([vocabulary_size, hidden_size], stddev=1.0 / math.sqrt(hidden_size)))
+        #self.HiddenWeights = tf.Variable(tf.random_uniform([embedding_size, hidden_size], -0.01, 0.01))
+        #self.HiddenBiases = tf.Variable(tf.zeros([hidden_size]))
         self.NCEWeights = tf.Variable(tf.random_normal([vocabulary_size, hidden_size], -0.01, 0.01))
         self.NCEBiases = tf.Variable(tf.zeros([vocabulary_size]))
 
@@ -244,8 +260,8 @@ class TWord2Vec:
         #self.Word2Id = data["Word2Id"]
         #self.Id2Word = data["Id2Word"]
         self.EmbeddingWeights = tf.Variable(data["EmbeddingWeights"])
-        self.HiddenWeights = tf.Variable(data["HiddenWeights"])
-        self.HiddenBiases = tf.Variable(data["HiddenBiases"])
+        #self.HiddenWeights = tf.Variable(data["HiddenWeights"])
+        #self.HiddenBiases = tf.Variable(data["HiddenBiases"])
         self.NCEWeights = tf.Variable(data["NCEWeights"])
         self.NCEBiases = tf.Variable(data["NCEBiases"])
         return True
@@ -255,8 +271,8 @@ class TWord2Vec:
         data["Word2Id"] = self.Word2Id
         data["Id2Word"] = self.Id2Word
         data["EmbeddingWeights"] = sess.run(self.EmbeddingWeights).tolist()
-        data["HiddenWeights"] = sess.run(self.HiddenWeights).tolist()
-        data["HiddenBiases"] = sess.run(self.HiddenBiases).tolist()
+        #data["HiddenWeights"] = sess.run(self.HiddenWeights).tolist()
+        #data["HiddenBiases"] = sess.run(self.HiddenBiases).tolist()
         data["NCEWeights"] = sess.run(self.NCEWeights).tolist()
         data["NCEBiases"] = sess.run(self.NCEBiases).tolist()
         open(path, "wt").write(json.dumps(data))
@@ -345,8 +361,9 @@ def main():
                                    #remove_accidental_hits = False
                                   )
                              )
-        optimizer = tf.train.GradientDescentOptimizer(learning_rate = learning_rate).minimize(loss)
+        #optimizer = tf.train.GradientDescentOptimizer(learning_rate = learning_rate).minimize(loss)
         #optimizer = tf.train.AdadeltaOptimizer(learning_rate = learning_rate).minimize(loss)
+        optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(loss)
         init = tf.global_variables_initializer()
         #sess = tf.Session(config = tf.ConfigProto(log_device_placement = True))
         sess = tf.Session()
@@ -354,22 +371,29 @@ def main():
         # generate all batches
         all_inputs, all_labels = generate_learning_data(data, context_width)
         del data
+        print "Learning data generated"
+        sys.stdout.flush()
         valid_inputs = all_inputs[:valid_size]
         valid_labels = all_labels[:valid_size]
+        valid_inputs = numpy.asarray(valid_inputs)
+        valid_labels = numpy.asarray(valid_labels)
         all_inputs = all_inputs[valid_size:]
         all_labels = all_labels[valid_size:]
         all_batches_inputs, all_batches_labels = [], []
+        print "Converting inputs"
+        sys.stdout.flush()
         for i in xrange(0, len(all_inputs), batch_size):
             all_batches_inputs.append(all_inputs[i:i+batch_size])
-            all_batches_labels.append(all_labels[i:i+batch_size])
         batches_count = len(all_batches_inputs)
         print len(all_inputs), len(valid_inputs), batches_count
         sys.stdout.flush()
         all_batches_inputs = numpy.asarray(all_batches_inputs)
-        all_batches_labels = numpy.asarray(all_batches_labels)
-        valid_inputs = numpy.asarray(valid_inputs)
-        valid_labels = numpy.asarray(valid_labels)
         del all_inputs
+        print "Converting labels"
+        sys.stdout.flush()
+        for i in xrange(0, len(all_labels), batch_size):
+            all_batches_labels.append(all_labels[i:i+batch_size])
+        all_batches_labels = numpy.asarray(all_batches_labels)
         del all_labels
         print "Begin training"
         sys.stdout.flush()
