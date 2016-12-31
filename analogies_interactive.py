@@ -154,6 +154,25 @@ def Test(ctx, w, count):
     print "\t".join(map(lambda i: "%s %.2f" % (ctx.w2v.Id2Word[i].encode("utf-8"), d[i]), idx[:count]))
 
 
+def DumpResult(ctx, path):
+    x = tf.placeholder(tf.int32, shape = [None])
+    embed_tensor = tf.nn.embedding_lookup(ctx.w2v.EmbeddingWeights, x)
+    op = tf.add(tf.matmul(embed_tensor, ctx.w), ctx.b)
+    sess = tf.Session()
+    init = tf.global_variables_initializer()
+    sess.run(init)
+    n = len(ctx.w2v.Id2Word)
+    feed_x = range(n)
+    pred = sess.run(op, feed_dict = {x: feed_x})
+    data = []
+    for i in xrange(n):
+        data.append({"word": ctx.w2v.Id2Word[i],
+                     "src": map(float, ctx.embs[i]),
+                     "dst": map(float, pred[i])})
+    open(path, "wt").write(json.dumps(data, indent=4, separators=(',', ': ')))
+    print "Predictions saved to", path
+
+
 # do all stuff
 def main():
     with tf.device('/cpu:0'):
@@ -182,6 +201,8 @@ def main():
                     LearnModel(ctx, int(cols[1]), float(cols[2]))
                 elif cmd == "exit":
                     break
+                elif cmd == "dump":
+                    DumpResult(ctx, cols[1])
                 else:
                     Test(ctx, cols[0], int(cols[1]) if len(cols) > 1 else 5)
             except:
