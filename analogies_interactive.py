@@ -164,12 +164,9 @@ def DumpResult(ctx, path):
     n = len(ctx.w2v.Id2Word)
     feed_x = range(n)
     pred = sess.run(op, feed_dict = {x: feed_x})
-    data = []
+    fout = open(path, "wt")
     for i in xrange(n):
-        data.append({"word": ctx.w2v.Id2Word[i],
-                     "src": map(float, ctx.embs[i]),
-                     "dst": map(float, pred[i])})
-    open(path, "wt").write(json.dumps(data, indent=4, separators=(',', ': ')))
+        fout.write("%s\t%s\t%s\n" % (ctx.w2v.Id2Word[i].encode("utf-8"), " ".join(map(str, ctx.embs[i])), " ".join(map(str, pred[i]))))
     print "Predictions saved to", path
 
 
