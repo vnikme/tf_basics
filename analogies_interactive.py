@@ -112,7 +112,7 @@ def LearnModel(ctx, iterations, alpha):
     x = tf.placeholder(tf.float32, [None, n])
     op = tf.add(tf.matmul(x, w), b)
     y = tf.placeholder(tf.float32, [None, n])
-    loss = tf.reduce_sum(tf.pow(tf.subtract(op, y), 2)) + alpha * (tf.reduce_sum(tf.abs(w)) + tf.reduce_sum(tf.abs(b)))
+    loss = tf.reduce_mean(tf.pow(tf.subtract(op, y), 2)) + alpha * (tf.reduce_mean(tf.abs(w)) + tf.reduce_mean(tf.abs(b)))
     optimizer = tf.train.AdamOptimizer(learning_rate = 0.01).minimize(loss)
     feed_x = [ctx.embs[ctx.w2v.Word2Id[p[0]]] for p in ctx.pairs]
     feed_y = [ctx.embs[ctx.w2v.Word2Id[p[1]]] for p in ctx.pairs]
