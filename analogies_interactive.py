@@ -91,7 +91,7 @@ def DelPair(ctx, w1, w2):
 
 def LoadPairs(ctx, path):
     ctx.pairs = []
-    for line in open(path, "rt"):
+    for line in open("data/" + path, "rt"):
         if line[-1] == "\n":
             line = line[:-1]
         w = line.split("\t")
@@ -100,7 +100,7 @@ def LoadPairs(ctx, path):
 
 
 def SavePairs(ctx, path):
-    fout = open(path, "wt")
+    fout = open("data/" + path, "wt")
     for pair in ctx.pairs:
         fout.write(pair[0].encode("utf-8") + "\t" + pair[1].encode("utf-8") + "\n")
 
