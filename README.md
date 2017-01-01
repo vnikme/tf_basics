@@ -1,10 +1,10 @@
 # tf_basics
 
-Set of examples of using tensorflow (http://tensorflow.org).
+Set of examples of using tensorflow (http://tensorflow.org).<br>
 Install tensorflow, then you can try this examples.
 
 
-xor.py:
+#xor.py:
  Neural network for calculating basic functions: xor, and, or, 1, 0.
 
 
