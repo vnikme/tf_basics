@@ -123,10 +123,14 @@ def LearnModel(ctx, iterations, alpha):
         _, err = sess.run([optimizer, loss], feed_dict = {x: feed_x, y: feed_y})
         print err
     ctx.w, ctx.b = sess.run([w, b])
+    a = sess.run(tf.matmul(w, tf.transpose(w)))
     for line in ctx.w:
         print " ".join(map(lambda x: "% 5.2f" % x, line))
     print
     print " ".join(map(lambda x: "% 5.2f" % x, ctx.b))
+    print
+    for line in a:
+        print " ".join(map(lambda x: "% 5.2f" % x, line))
     print "Learnt"
 
 
