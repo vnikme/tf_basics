@@ -3,10 +3,13 @@
 
 
 import tensorflow as tf
-import json, math, numpy, random, shutil, sys, time
+import json, math, numpy, random, shutil, sys
 
 
-start_time = time.time()
+all_syms = "0123456789abcdefghijklmnopqrstuvwxyzабвгдеёжзийклмнопрстуфхцчшщъыьэюя-".decode("utf-8")
+allowed_syms = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-".decode("utf-8")
+tech_syms = "-".decode("utf-8")
+
 
 # make lower case
 def to_wide_lower(s):
@@ -15,23 +18,17 @@ def to_wide_lower(s):
     return s
 
 
-all_syms = "0123456789abcdefghijklmnopqrstuvwxyzабвгдеёжзийклмнопрстуфхцчшщъыьэюя-".decode("utf-8")
-allowed_syms = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-".decode("utf-8")
-tech_syms = "-".decode("utf-8")
-
-
 def is_letter(ch):
     return ch in all_syms
 
 
 # read lines, yield symbols
 def iterate_symbols(path):
-    global start_time
     c = 0
     for line in open(path):
         c += 1
         if c % 1000000 == 0:
-            print time.time() - start_time, c / 1000000
+            print c / 1000000
             sys.stdout.flush()
             #if c / 10000 >= 50:
             #    break
@@ -84,11 +81,10 @@ def read_data(path, words_to_take):
         id_ = word2id[word]
         data.append(id_)
         word_freqs[id_] += 1
-    global start_time
-    print time.time() - start_time, "Converting to ndarray"
+    print "Converting to ndarray"
     sys.stdout.flush()
     data = numpy.asarray(data)
-    print time.time() - start_time, "Filtering input"
+    print "Filtering input"
     sys.stdout.flush()
     n = len(word_freqs)
     fidx = range(n)
@@ -112,7 +108,7 @@ def read_data(path, words_to_take):
         word2id[w] = idx[word2id[w]]
     for i in xrange(len(data)):
         data[i] = idx[data[i]]
-    print time.time() - start_time, "Data read"
+    print "Data read"
     sys.stdout.flush()
     return data, word2id, id2word, word_freqs
 
@@ -124,8 +120,7 @@ def print_data_stats(data, w2v):
     lens = {}
     for word in idx[:100]:
         print w2v.Id2Word[word], w2v.WordFreqs[word]
-    global start_time
-    print time.time() - start_time, "Data len and number of words to learn: ", len(data), len(w2v.Id2Word)
+    print "Data len and number of words to learn: ", len(data), len(w2v.Id2Word)
     sys.stdout.flush()
     #for word in d.keys():
     #    l = d[word]
@@ -237,11 +232,8 @@ class TWord2Vec:
 
     def Init(self, embedding_size):
         vocabulary_size = len(self.Id2Word)
-        hidden_size = embedding_size # * 4
         self.EmbeddingWeights = tf.Variable(tf.random_uniform([vocabulary_size, embedding_size], -0.01, 0.01))
-        #self.HiddenWeights = tf.Variable(tf.random_uniform([embedding_size, hidden_size], -0.01, 0.01))
-        #self.HiddenBiases = tf.Variable(tf.zeros([hidden_size]))
-        self.NCEWeights = tf.Variable(tf.random_normal([vocabulary_size, hidden_size], -0.01, 0.01))
+        self.NCEWeights = tf.Variable(tf.random_normal([vocabulary_size, embedding_size], -0.01, 0.01))
         self.NCEBiases = tf.Variable(tf.zeros([vocabulary_size]))
 
     def CheckWordListConsistency(self, data):
@@ -265,8 +257,6 @@ class TWord2Vec:
         #self.Word2Id = data["Word2Id"]
         #self.Id2Word = data["Id2Word"]
         self.EmbeddingWeights = tf.Variable(data["EmbeddingWeights"])
-        #self.HiddenWeights = tf.Variable(data["HiddenWeights"])
-        #self.HiddenBiases = tf.Variable(data["HiddenBiases"])
         self.NCEWeights = tf.Variable(data["NCEWeights"])
         self.NCEBiases = tf.Variable(data["NCEBiases"])
         return True
@@ -320,25 +310,23 @@ def main():
         embedding_size, batch_size, valid_size, words_to_take, num_sampled, context_width, count_of_nearest, print_freq, save_freq, params = map(int, params[:9]) + [params[9:]]
         base_words, words = params[:2], params[2:]
         words = [[words[i], words[i + 1]] for i in xrange(0, len(words), 2)]
-        #learning_rate /= batch_size
         # read data, make indexes word <-> id
         w2v = TWord2Vec()
         data, w2v.Word2Id, w2v.Id2Word, w2v.WordFreqs = read_data(input_path, words_to_take)
         print_data_stats(data, w2v)
         vocabulary_size = len(w2v.Id2Word)
         # generate all batches
-        global start_time
-        print time.time() - start_time, "Generating learn data"
+        print "Generating learn data"
         sys.stdout.flush()
         all_inputs, all_labels = generate_learning_data(data, context_width)
         del data
-        print time.time() - start_time, "Learning data generated"
-        print time.time() - start_time, "Trying to load dump or initialize matrixes"
+        print "Learning data generated"
+        print "Trying to load dump or initialize matrixes"
         sys.stdout.flush()
         if w2v.Load(dump_path):
-            print time.time() - start_time, "Loaded"
+            print "Loaded"
         else:
-            print time.time() - start_time, "Failed to load from '%s'" % dump_path
+            print "Failed to load from '%s'" % dump_path
             w2v.Init(embedding_size)
         sys.stdout.flush()
         valid_inputs = all_inputs[:valid_size]
@@ -348,82 +336,70 @@ def main():
         all_inputs = all_inputs[valid_size:]
         all_labels = all_labels[valid_size:]
         all_batches_inputs, all_batches_labels = [], []
-        print time.time() - start_time, "Converting inputs"
+        print "Converting inputs"
         sys.stdout.flush()
         for i in xrange(0, len(all_inputs), batch_size):
             all_batches_inputs.append(all_inputs[i:i+batch_size])
         batches_count = len(all_batches_inputs)
-        print time.time() - start_time, len(all_inputs), len(valid_inputs), batches_count
+        print len(all_inputs), len(valid_inputs), batches_count
         sys.stdout.flush()
         all_batches_inputs = numpy.asarray(all_batches_inputs)
         del all_inputs
-        print time.time() - start_time, "Converting labels"
+        print "Converting labels"
         sys.stdout.flush()
         for i in xrange(0, len(all_labels), batch_size):
             all_batches_labels.append(all_labels[i:i+batch_size])
         all_batches_labels = numpy.asarray(all_batches_labels)
         del all_labels
-        print time.time() - start_time, "Creating tensors"
+        print "Creating tensors"
         sys.stdout.flush()
         # input and output placeholders
         inputs = tf.placeholder(tf.int32, shape = [None])
         labels = tf.placeholder(tf.int32, shape = [None, context_width * 2])
         # tensor for 'input->embedding' transform
         embed_tensor = tf.nn.embedding_lookup(w2v.EmbeddingWeights, inputs)
-        #embed_tensor = tf.nn.sigmoid(embed_tensor)
         # define loss
-        hidden = embed_tensor
-        #hidden = tf.add(tf.matmul(embed_tensor, w2v.HiddenWeights), w2v.HiddenBiases)
-        #hidden = tf.nn.sigmoid(hidden)
         loss = tf.reduce_mean(
-                    #tf.nn.nce_loss(weights = w2v.NCEWeights,
                     tf.nn.sampled_softmax_loss(weights = w2v.NCEWeights,
                                    biases = w2v.NCEBiases,
                                    labels = labels,
-                                   inputs = hidden,
+                                   inputs = embed_tensor,
                                    num_sampled = num_sampled,
                                    num_classes = vocabulary_size,
                                    num_true = context_width * 2,
-                                   #remove_accidental_hits = True
                                   )
                              )
         full_loss = tf.reduce_mean(
-                    #tf.nn.nce_loss(weights = w2v.NCEWeights,
                     tf.nn.sampled_softmax_loss(weights = w2v.NCEWeights,
                                    biases = w2v.NCEBiases,
                                    labels = labels,
-                                   inputs = hidden,
+                                   inputs = embed_tensor,
                                    num_sampled = vocabulary_size,
                                    num_classes = vocabulary_size,
                                    num_true = context_width * 2,
-                                   #remove_accidental_hits = False
                                   )
                              )
-        #optimizer = tf.train.GradientDescentOptimizer(learning_rate = learning_rate).minimize(loss)
-        #optimizer = tf.train.AdadeltaOptimizer(learning_rate = learning_rate).minimize(loss)
         optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(loss)
+        print "Begin training"
         init = tf.global_variables_initializer()
         #sess = tf.Session(config = tf.ConfigProto(log_device_placement = True))
         sess = tf.Session()
         sess.run(init)
-        print time.time() - start_time, "Begin training"
         sys.stdout.flush()
         epoch = 0
         while True:
-            start_time = time.time()
             for batch_inputs, batch_labels in zip(all_batches_inputs, all_batches_labels):
                 sess.run([optimizer], feed_dict = {inputs: batch_inputs, labels: batch_labels})
             valid_loss = sess.run([full_loss], feed_dict = {inputs: valid_inputs, labels: valid_labels})[0] if len(valid_inputs) > 0 else 0.0
             if epoch % print_freq == 0:
                 if epoch % save_freq == 0 or valid_loss < eps:
-                #if epoch % save_freq == 0:
                     try:
                         shutil.copy(dump_path, dump_path + ".bak")
                     except:
                         pass
                     w2v.Save(dump_path, sess)
 
-                print "Epoch:\t%d\tValidation loss:\t%.2f\tTime:\t%.2f" % (epoch, valid_loss, time.time() - start_time)
+                print "Epoch:\t%d\tValidation loss:\t%.2f" % (epoch, valid_loss)
                 for pair in words:
                     print_analogies(sess, embed_tensor, inputs, w2v, base_words, pair, count_of_nearest)
                 print
