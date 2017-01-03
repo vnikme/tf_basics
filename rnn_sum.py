@@ -35,7 +35,7 @@ def main():
     output = tf.sigmoid(tf.add(tf.matmul(output, w), b))
     output = tf.reshape(output, [-1, max_time, output_size])
     loss = tf.nn.l2_loss(tf.subtract(output, y))
-    optimizer = tf.train.AdamOptimizer(learning_rate = 0.001).minimize(loss)
+    optimizer = tf.train.AdamOptimizer(learning_rate = 0.1).minimize(loss)
     init = tf.global_variables_initializer()
     sess = tf.Session()
     sess.run(init)
