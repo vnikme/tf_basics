@@ -24,13 +24,13 @@ def generate_batch(batch_size, bits):
 
 # do all stuff
 def main():
-    max_time, input_size, output_size, state_size = 16, 2, 1, 100
+    max_time, input_size, output_size, state_size = 16, 2, 1, 5
     gru = tf.nn.rnn_cell.GRUCell(state_size)
     x = tf.placeholder(tf.float32, [None, max_time, input_size])
     output, state = tf.nn.dynamic_rnn(gru, x, dtype = tf.float32)
     y = tf.placeholder(tf.float32, [None, max_time, output_size])
-    w = tf.random_normal([state_size, output_size])
-    b = tf.random_normal([output_size])
+    w = tf.Variable(tf.random_normal([state_size, output_size]))
+    b = tf.Variable(tf.random_normal([output_size]))
     output = tf.reshape(output, [-1, state_size])
     output = tf.sigmoid(tf.add(tf.matmul(output, w), b))
     output = tf.reshape(output, [-1, max_time, output_size])
@@ -40,7 +40,7 @@ def main():
     sess = tf.Session()
     sess.run(init)
     while True:
-        batch_x, batch_y = generate_batch(1000, max_time)
+        batch_x, batch_y = generate_batch(10000, max_time)
         res, l = sess.run([optimizer, loss], feed_dict = {x: batch_x, y: batch_y})
         print l
     return
