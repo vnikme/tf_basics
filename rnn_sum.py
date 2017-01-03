@@ -24,7 +24,7 @@ def generate_batch(batch_size, bits):
 
 # do all stuff
 def main():
-    max_time, input_size, output_size, state_size = 16, 2, 1, 5
+    max_time, input_size, output_size, state_size = 1000, 2, 1, 5
     gru = tf.nn.rnn_cell.GRUCell(state_size)
     x = tf.placeholder(tf.float32, [None, max_time, input_size])
     output, state = tf.nn.dynamic_rnn(gru, x, dtype = tf.float32)
