@@ -22,10 +22,29 @@ def generate_batch(batch_size, bits):
     return x, y
 
 
+def calc_error_bits(output, targets):
+    res = 0
+    for a, b in zip(output, targets):
+        a = 1.0 if a > 0.5 else 0.0
+        if a != b:
+            res += 1
+    return res
+
+
+def analyze_output(output, targets):
+    error_samples, total_samples, error_bits, total_bits = 0, len(output), 0, len(output) * len(output[0])
+    for i in xrange(total_samples):
+        t = calc_error_bits(output[i], targets[i])
+        if t != 0:
+            error_samples += 1
+        error_bits += t
+    return (error_samples / (total_samples + 1e-38), error_bits / (total_bits + 1e-38))
+
+
 # do all stuff
 def main():
     # define params
-    max_time, max_valid_time, batch_size, valid_batch_size, input_size, output_size, state_size, eps = 100, 1000, 100, 100, 2, 1, 5, 0.001
+    max_time, max_valid_time, batch_size, valid_batch_size, input_size, output_size, state_size, eps = 100, 1000, 1000, 1000, 2, 1, 5, 0.03
     gru = tf.nn.rnn_cell.GRUCell(state_size)
     w = tf.Variable(tf.random_normal([state_size, output_size]))
     b = tf.Variable(tf.random_normal([output_size]))
@@ -47,8 +66,8 @@ def main():
     valid_y = tf.placeholder(tf.float32, [None, max_valid_time, output_size])
     output = tf.reshape(output, [-1, state_size])
     output = tf.sigmoid(tf.add(tf.matmul(output, w), b))
-    output = tf.reshape(output, [-1, max_valid_time, output_size])
-    valid_loss = tf.nn.l2_loss(tf.subtract(output, valid_y))
+    valid_output = tf.reshape(output, [-1, max_valid_time, output_size])
+    valid_loss = tf.nn.l2_loss(tf.subtract(valid_output, valid_y))
     # begin training
     init = tf.global_variables_initializer()
     sess = tf.Session()
@@ -60,18 +79,21 @@ def main():
         res, l = sess.run([optimizer, loss], feed_dict = {x: batch_x, y: batch_y})
         l /= (batch_size * max_time)
         if cnt % 10 == 0:
-            vl = sess.run(valid_loss, feed_dict = {valid_x: valid_batch_x, valid_y: valid_batch_y})
+            vo, vl = sess.run([valid_output, valid_loss], feed_dict = {valid_x: valid_batch_x, valid_y: valid_batch_y})
             vl /= (valid_batch_size * max_valid_time)
             print l, vl
+            print analyze_output(vo, valid_batch_y)
+            if 1 - ((1 - vl) ** max_valid_time) < eps:
+                break
+            print 1 - ((1 - vl) ** max_valid_time)
         else:
             print l
-        if vl < eps:
-            break
         cnt += 1
     test_x, test_y = generate_batch(valid_batch_size, max_valid_time)
-    tl = sess.run(valid_loss, feed_dict = {valid_x: test_x, valid_y: test_y})
+    to, tl = sess.run([valid_output, valid_loss], feed_dict = {valid_x: test_x, valid_y: test_y})
     tl /= (valid_batch_size * max_valid_time)
     print tl
+    print analyze_output(to, test_y)
 
 
 # entry point
