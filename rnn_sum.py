@@ -25,30 +25,30 @@ def generate_batch(batch_size, bits):
 # do all stuff
 def main():
     # define params
-    max_time, max_valid_time, batch_size, valid_batch_size, input_size, output_size, state_size, eps = 100, 100000, 1000, 1000, 2, 1, 5, 0.001
+    max_time, max_valid_time, batch_size, valid_batch_size, input_size, output_size, state_size, eps = 100, 1000, 100, 100, 2, 1, 5, 0.001
     gru = tf.nn.rnn_cell.GRUCell(state_size)
     w = tf.Variable(tf.random_normal([state_size, output_size]))
     b = tf.Variable(tf.random_normal([output_size]))
     # create learning graph
+    x = tf.placeholder(tf.float32, [None, max_time, input_size])
     with tf.variable_scope('train'):
-        x = tf.placeholder(tf.float32, [None, max_time, input_size])
         output, state = tf.nn.dynamic_rnn(gru, x, dtype = tf.float32)
-        y = tf.placeholder(tf.float32, [None, max_time, output_size])
-        output = tf.reshape(output, [-1, state_size])
-        output = tf.sigmoid(tf.add(tf.matmul(output, w), b))
-        output = tf.reshape(output, [-1, max_time, output_size])
-        # define loss and optimizer
-        loss = tf.nn.l2_loss(tf.subtract(output, y))
-        optimizer = tf.train.AdamOptimizer(learning_rate = 0.1).minimize(loss)
+    y = tf.placeholder(tf.float32, [None, max_time, output_size])
+    output = tf.reshape(output, [-1, state_size])
+    output = tf.sigmoid(tf.add(tf.matmul(output, w), b))
+    output = tf.reshape(output, [-1, max_time, output_size])
+    # define loss and optimizer
+    loss = tf.nn.l2_loss(tf.subtract(output, y))
+    optimizer = tf.train.AdamOptimizer(learning_rate = 0.1).minimize(loss)
     # define validation and test data and operations
+    valid_x = tf.placeholder(tf.float32, [None, max_valid_time, input_size])
     with tf.variable_scope('train', reuse = True):
-        valid_x = tf.placeholder(tf.float32, [None, max_valid_time, input_size])
         output, state = tf.nn.dynamic_rnn(gru, valid_x, dtype = tf.float32)
-        valid_y = tf.placeholder(tf.float32, [None, max_valid_time, output_size])
-        output = tf.reshape(output, [-1, state_size])
-        output = tf.sigmoid(tf.add(tf.matmul(output, w), b))
-        output = tf.reshape(output, [-1, max_valid_time, output_size])
-        valid_loss = tf.nn.l2_loss(tf.subtract(output, valid_y))
+    valid_y = tf.placeholder(tf.float32, [None, max_valid_time, output_size])
+    output = tf.reshape(output, [-1, state_size])
+    output = tf.sigmoid(tf.add(tf.matmul(output, w), b))
+    output = tf.reshape(output, [-1, max_valid_time, output_size])
+    valid_loss = tf.nn.l2_loss(tf.subtract(output, valid_y))
     # begin training
     init = tf.global_variables_initializer()
     sess = tf.Session()
