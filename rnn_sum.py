@@ -44,7 +44,7 @@ def analyze_output(output, targets):
 # do all stuff
 def main():
     # define params
-    max_time, max_valid_time, batch_size, valid_batch_size, input_size, output_size, state_size, eps = 100, 1000, 1000, 1000, 2, 1, 5, 0.03
+    max_time, max_valid_time, batch_size, valid_batch_size, input_size, output_size, state_size, eps = 100, 1000, 1000, 1000, 2, 1, 10, 0.01
     gru = tf.nn.rnn_cell.GRUCell(state_size)
     w = tf.Variable(tf.random_normal([state_size, output_size]))
     b = tf.Variable(tf.random_normal([output_size]))
