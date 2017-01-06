@@ -62,7 +62,7 @@ def make_sample(sess, x, state_x, op, state_op, cur_state, n):
 def main():
     # define params
     max_time, batch_size, state_size, learning_rate = 16, 50000, 64, 0.01
-    path = "data/all"
+    path = "data/lib_ru"
     vocabulary_size = len(all_syms)
     # read and convert data
     data = np.asarray(list(iterate_symbols(path)))
