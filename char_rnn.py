@@ -60,23 +60,20 @@ def make_sample(sess, x, state_x, op, state_op, cur_state, n):
 # do all stuff
 def main():
     # define params
-    max_time, batch_size, embedding_size, state_size, learning_rate = 128, 10000, 50, 10, 0.001
-    path = "data/lib_ru"
+    max_time, batch_size, state_size, learning_rate = 32, 115000, 10, 0.01
+    path = "data/all"
     vocabulary_size = len(all_syms)
     # read and convert data
     data = np.asarray(list(iterate_symbols(path)))
     # create variables and graph
     x = tf.placeholder(tf.int32, [None, max_time])
     apply_x = tf.placeholder(tf.int32, [1, 1])                  # we will apply it sym-by-sym
-    ew = tf.Variable(tf.random_uniform([vocabulary_size, embedding_size], -0.01, 0.01))
-    embed_tensor = tf.nn.embedding_lookup(ew, x)
-    apply_embed_tensor = tf.nn.embedding_lookup(ew, apply_x)
     gru = tf.nn.rnn_cell.GRUCell(state_size)
     w = tf.Variable(tf.random_normal([state_size, vocabulary_size]))
     b = tf.Variable(tf.random_normal([vocabulary_size]))
     # create learning graph
     with tf.variable_scope('train'):
-        output, state = tf.nn.dynamic_rnn(gru, embed_tensor, dtype = tf.float32)
+        output, state = tf.nn.dynamic_rnn(gru, tf.one_hot(x, vocabulary_size, on_value = 1.0), dtype = tf.float32)
     output = tf.reshape(output, [-1, state_size])
     output = tf.add(tf.matmul(output, w), b)
     output = tf.reshape(output, [-1, max_time, vocabulary_size])
@@ -89,7 +86,7 @@ def main():
     # create output tensors for applying
     state_x = tf.placeholder(tf.float32, [1, state_size])
     with tf.variable_scope('train', reuse = True):
-        output, state = tf.nn.dynamic_rnn(gru, apply_embed_tensor, initial_state = state_x, dtype = tf.float32)
+        output, state = tf.nn.dynamic_rnn(gru, tf.one_hot(apply_x, vocabulary_size, on_value = 1.0), initial_state = state_x, dtype = tf.float32)
     output = tf.reshape(output, [-1, state_size])
     output = tf.add(tf.matmul(output, w), b)
     output = tf.reshape(output, [-1, 1, vocabulary_size])
