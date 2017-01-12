@@ -4,7 +4,7 @@
 
 import tensorflow as tf
 import numpy as np
-import random, sys
+import base64, json, random, sys
 
 
 all_syms = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZабвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ \n'\"()?!.,*+-/\%/\\$#@:;".decode("utf-8")
@@ -12,43 +12,69 @@ all_syms = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZабв
 #all_syms = "Helo".decode("utf-8")
 
 
-# make lower case
-def to_wide_lower(s):
-    s = s.decode("utf-8")
-    s = s.lower()
-    return s
-
-
-def is_letter(ch):
-    return ch in all_syms
-
-
 # read lines, yield symbols
-def iterate_symbols(path):
-    c = 0
+def iterate_messages(path):
     for line in open(path):
-        c += 1
-        if c % 1000000 == 0:
-            print c / 1000000
-            sys.stdout.flush()
-            if c / 1000000 >= 30:
-                break
-        #line = to_wide_lower(line)
-        line = line.decode("utf-8")
+        if line and line[-1] == "\n":
+            line = line[:-1]
+        line = json.loads(base64.b64decode(line))["text"]
+        data = []
         for ch in line:
-            if ch not in all_syms:
-                continue
-            yield all_syms.index(ch)
+            if ch in all_syms:
+                data.append(all_syms.index(ch))
+        if data:
+            data.append(len(all_syms))      # end-of-message symbol
+            yield data
+
+
+# make all sliding windows
+def transform_data_to_sliding_windows(data, window_size):
+    result = []
+    for i in xrange(len(data) - window_size + 1):
+        result.append(np.asarray(sum(data[i : i + window_size], [])))
+    return result
+
+
+# iterate over batches
+def iterate_batches(data, max_batch, max_time):
+    n = len(data)
+    for row in xrange((n + max_batch - 1) / max_batch):
+        col = 0
+        while True:
+            all_zero = True
+            batch_data_x, batch_data_y, batch_lengths = [], [], []
+            for i in xrange(max_batch):
+                if row * max_batch + i < n:
+                    k = len(data[row * max_batch + i]) - 1 - col
+                    k = max(min(k, max_time), 0)
+                    x = data[row * max_batch + i][col : col + k]
+                    y = data[row * max_batch + i][col + 1 : col + 1 + k]
+                    if k < max_time:
+                        x = np.concatenate((x, [0] * (max_time - k)))
+                        y = np.concatenate((y, [0] * (max_time - k)))
+                    batch_data_x.append(x)
+                    batch_data_y.append(y)
+                    batch_lengths.append(k)
+                    if k != 0:
+                        all_zero = False
+                else:
+                    batch_data_x.append(np.asarray([0] * max_time))
+                    batch_data_y.append(np.asarray([0] * max_time))
+                    batch_lengths.append(0)
+            if all_zero:
+                break
+            yield batch_data_x, batch_data_y, batch_lengths, float(row) / ((n + max_batch - 1) / max_batch)
+            col += max_time
+
 
 
 # input shape: batch*time*state
 # output shape: batch*time*vocabulary
 # multiplies last dimention by `w` and adds `b`
-def make_projection(x, state_size, max_time, vocabulary_size, w, b):
-    output = tf.reshape(x, [-1, state_size])
+def make_projection(inp, state_size, max_time, vocabulary_size, w, b):
+    output = tf.reshape(inp, [-1, state_size])
     output = tf.add(tf.matmul(output, w), b)
     output = tf.reshape(output, [-1, max_time, vocabulary_size])
-    output = tf.nn.softmax(output)
     return output
 
 
@@ -59,23 +85,7 @@ def choose_random(distr):
     return int(np.searchsorted(cs, np.random.rand(1) * s))
 
 
-def make_sample(sess, x, state_x, op, state_op, cur_state, n, seed):
-    seed = [all_syms.index(ch) for ch in seed.decode("utf-8")]
-    for ch in seed:
-        res, cur_state = sess.run([op, state_op], feed_dict = {x: [[ch]], state_x: cur_state})
-    res = res[0][0]
-    #print res
-    cur_sym = choose_random(res)
-    result = all_syms[cur_sym]
-    for k in xrange(n):
-        res, cur_state = sess.run([op, state_op], feed_dict = {x: [[cur_sym]], state_x: cur_state})
-        res = res[0][0]
-        cur_sym = choose_random(res)
-        result += all_syms[cur_sym]
-    return result.encode("utf-8")
-
-
-def make_sample1(sess, x, state_x, op, state_op, l, cur_state, n, seed, max_time):
+def make_sample(sess, x, state_x, op, state_op, l, cur_state, seed, max_time):
     result = seed.decode("utf-8")
     seed = [all_syms.index(ch) for ch in seed.decode("utf-8")]
     for ch in seed:
@@ -85,11 +95,13 @@ def make_sample1(sess, x, state_x, op, state_op, l, cur_state, n, seed, max_time
     #print "\t".join(map(lambda u: "%.2f" % u, res))
     cur_sym = choose_random(res)
     result += all_syms[cur_sym]
-    for k in xrange(n):
+    while True:
         res, cur_state = sess.run([op, state_op], feed_dict = {x: [[cur_sym] * max_time], state_x: cur_state, l: [1]})
         res = res[0][0]
         #print "\t".join(map(lambda u: "%.2f" % u, res))
         cur_sym = choose_random(res)
+        if cur_sym == len(all_syms):
+            break
         result += all_syms[cur_sym]
     return result.encode("utf-8")
 
@@ -134,15 +146,15 @@ def test():
 # do all stuff
 def main():
     # define params
-    max_time, batch_size, state_size, learning_rate = 16, 5000, 1024, 0.001
+    max_time, batch_size, state_size, learning_rate = 8, 300, 64, 0.001
     #max_time, batch_size, state_size, learning_rate = 16, 1, 512, 0.001
-    #learning_rate /= batch_size
-    path = "data/all"
-    #path = "char_rnn.py"
-    vocabulary_size = len(all_syms)
+    path = "3be3d3ffd5e6e44608b948109849192b.log"
+    vocabulary_size = len(all_syms) + 1
 
     # read and convert data
-    data = np.asarray(list(iterate_symbols(path)))
+    data = list(iterate_messages(path))
+    data = transform_data_to_sliding_windows(data, 5)
+    random.shuffle(data)
 
     # create variables and graph
     x = tf.placeholder(tf.int32, [None, max_time])
@@ -155,10 +167,7 @@ def main():
     state_x = tf.placeholder(tf.float32, [None, state_size])
     with tf.variable_scope('train'):
         output, state = tf.nn.dynamic_rnn(gru, tf.one_hot(x, vocabulary_size, on_value = 1.0), initial_state = state_x, sequence_length = lengths, dtype = tf.float32, swap_memory = True)
-    output = tf.reshape(output, [-1, state_size])
-    output = tf.add(tf.matmul(output, w), b)
-    output = tf.reshape(output, [-1, max_time, vocabulary_size])
-    #output = tf.nn.softmax(output)
+    output = make_projection(output, state_size, max_time, vocabulary_size, w, b)
     y = tf.placeholder(tf.int32, [None, max_time])
 
     # define loss and optimizer
@@ -166,15 +175,8 @@ def main():
     loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(output, ohy))
     optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(loss)
 
-    # create output tensors for applying
-    apply_x = tf.placeholder(tf.int32, [None, max_time])                    # we will apply it sym-by-sym
-    apply_state_x = tf.placeholder(tf.float32, [None, state_size])
-    with tf.variable_scope('train', reuse = True):
-        apply_output, apply_state = tf.nn.dynamic_rnn(gru, tf.one_hot(apply_x, vocabulary_size, on_value = 1.0), initial_state = apply_state_x, sequence_length = lengths, dtype = tf.float32, swap_memory = True)
-    apply_output = tf.reshape(apply_output, [-1, state_size])
-    apply_output = tf.add(tf.matmul(apply_output, w), b)
-    apply_output = tf.reshape(apply_output, [-1, max_time, vocabulary_size])
-    apply_output = tf.nn.softmax(apply_output)
+    # renorm output logits for sampling
+    apply_output = tf.nn.softmax(output)
 
     # create saver
     saver = tf.train.Saver(max_to_keep = 20)
@@ -183,8 +185,7 @@ def main():
     init = tf.global_variables_initializer()
     sess = tf.Session()
     sess.run(init)
-    cnt = 0
-    steps = (len(data) - 1) / (batch_size * max_time)
+    epoch = 0
     zero_state = sess.run(gru.zero_state(batch_size, tf.float32))
     apply_zero_state = sess.run(gru.zero_state(1, tf.float32))
     prev_loss = 0.0
@@ -194,40 +195,29 @@ def main():
         saver.restore(sess, sys.argv[1])
         while True:
             seed = raw_input("Enter phrase: ")
-            print make_sample1(sess, apply_x, apply_state_x, apply_output, apply_state, lengths, apply_zero_state, int(sys.argv[2]), seed, max_time)
+            print make_sample(sess, x, state_x, apply_output, state, lengths, apply_zero_state, seed, max_time)
 
     # training mode
     while True:
-        l, c, i = 0.0, 0, 0
+        l, c = 0.0, 0
         cur_state = zero_state
-        for i in xrange(steps):
-            #print (i + 1) * max_time + steps * max_time * (batch_size - 1) + 1, len(data), steps
-            batch_x, batch_y = [], []
-            for j in xrange(batch_size):
-                batch_x.append(data[i * max_time + j * steps * max_time : (i + 1) * max_time + j * steps * max_time])
-                batch_y.append(data[i * max_time + j * steps * max_time + 1 : (i + 1) * max_time + j * steps * max_time + 1])
-            #print
-            #print batch_x
-            #print batch_y
-            #print
-            if c == 0 or l / c > 0.03:
-                cur_state = zero_state
-            _, cur_state, _l = sess.run([optimizer, state, loss], feed_dict = {x: batch_x, y: batch_y, state_x: cur_state, lengths: [max_time] * batch_size})
+        for batch_x, batch_y, batch_lengths, progress in iterate_batches(data, batch_size, max_time):
+            _, cur_state, _l = sess.run([optimizer, state, loss], feed_dict = {x: batch_x, y: batch_y, state_x: cur_state, lengths: batch_lengths})
             #_l /= (batch_size * max_time)
             l += _l
             c += 1
             #print_matrs(dump)
-            print "Progress: %.1f%%, loss: %f" % (i * 100.0 / steps, _l)
+            print "Progress: %.1f%%, loss: %f" % (progress * 100.0, _l)
             sys.stdout.flush()
             #if _l < 0.3:
             #    break
         seed = "Посадил дед ре"
         #seed = "#!/"
-        print make_sample1(sess, apply_x, apply_state_x, apply_output, apply_state, lengths, apply_zero_state, 1000, seed, max_time)
+        print make_sample(sess, x, state_x, apply_output, state, lengths, apply_zero_state, seed, max_time)
         print "Loss: %.5f\tdiff with prev: %.5f\tlrate: %.5f\n" % (l / c, l / c - prev_loss, learning_rate)
         sys.stdout.flush()
-        saver.save(sess, "dumps/dump", global_step = cnt)
-        cnt += 1
+        saver.save(sess, "dumps/dump", global_step = epoch)
+        epoch += 1
         #if -l / c - prev_loss < 0.00001:
         #    learning_rate *= 0.95
         prev_loss = l / c
