@@ -82,13 +82,14 @@ def choose_random(distr):
     #print " ".join(map(lambda t: "%.2f" % t, distr))
     cs = np.cumsum(distr)
     s = np.sum(distr)
-    return int(np.searchsorted(cs, np.random.rand(1) * s))
+    k = int(np.searchsorted(cs, np.random.rand(1) * s))
+    return min(k, len(distr) - 1)
 
 
-def make_sample(sess, x, state_x, op, state_op, l, cur_state, seed, max_time):
-    result = seed.decode("utf-8")
-    seed = [all_syms.index(ch) for ch in seed.decode("utf-8")]
+def make_sample(sess, x, state_x, op, state_op, l, cur_state, seed, max_time, max_sample_length):
+    result = ""
     for ch in seed:
+        result += (all_syms[ch] if ch < len(all_syms) else "\n")
         res, cur_state = sess.run([op, state_op], feed_dict = {x: [[ch] * max_time], state_x: cur_state, l: [1]})
     #print cur_state.shape
     res = res[0][0]
@@ -100,7 +101,7 @@ def make_sample(sess, x, state_x, op, state_op, l, cur_state, seed, max_time):
         res = res[0][0]
         #print "\t".join(map(lambda u: "%.2f" % u, res))
         cur_sym = choose_random(res)
-        if cur_sym == len(all_syms):
+        if cur_sym == len(all_syms) or len(result) >= max_sample_length:
             break
         result += all_syms[cur_sym]
     return result.encode("utf-8")
@@ -142,19 +143,46 @@ def test():
     test_projection()
     test_onehot()
 
- 
+
+def do_train(sess, saver, x_placeholder, y_placeholder, state_placeholder, lengths_placeholder,
+             output_operation, state_operation, loss, optimizer,
+             zero_state, apply_zero_state,
+             data, seed_data,
+             batch_size, max_time, max_sample_length, dumps_path, exit_func):
+    epoch, prev_loss = 0, 0.0
+    while True:
+        l, c = 0.0, 0
+        cur_state = zero_state
+        for batch_x, batch_y, batch_lengths, progress in iterate_batches(data, batch_size, max_time):
+            _, cur_state, _l = sess.run([optimizer, state_operation, loss], feed_dict = {x_placeholder: batch_x, y_placeholder: batch_y, state_placeholder: cur_state, lengths_placeholder: batch_lengths})
+            l += _l
+            c += 1
+            print "Progress: %.1f%%, loss: %f" % (progress * 100.0, _l)
+            sys.stdout.flush()
+        seed = seed_data[min(int(random.random() * len(seed_data)), len(seed_data) - 1)]
+        print make_sample(sess, x_placeholder, state_placeholder, output_operation, state_operation, lengths_placeholder, apply_zero_state, seed, max_time, max_sample_length)
+        print "Loss: %.5f\tdiff with prev: %.5f\n" % (l / c, l / c - prev_loss)
+        sys.stdout.flush()
+        saver.save(sess, dumps_path, global_step = epoch)
+        epoch += 1
+        prev_loss = l / c
+        if exit_func(epoch, prev_loss):
+            break
+
+
 # do all stuff
 def main():
     # define params
-    max_time, batch_size, state_size, learning_rate = 8, 300, 64, 0.001
-    #max_time, batch_size, state_size, learning_rate = 16, 1, 512, 0.001
     path = "3be3d3ffd5e6e44608b948109849192b.log"
     vocabulary_size = len(all_syms) + 1
 
     # read and convert data
-    data = list(iterate_messages(path))
-    data = transform_data_to_sliding_windows(data, 5)
+    source_data = list(iterate_messages(path))
+    data = transform_data_to_sliding_windows(source_data, 5)
     random.shuffle(data)
+
+    # define params
+    max_time, batch_size, state_size, learning_rate = 16, len(data), 1024, 0.001
 
     # create variables and graph
     x = tf.placeholder(tf.int32, [None, max_time])
@@ -179,48 +207,29 @@ def main():
     apply_output = tf.nn.softmax(output)
 
     # create saver
-    saver = tf.train.Saver(max_to_keep = 20)
+    saver = tf.train.Saver(max_to_keep = 100)
 
     # prepare variables
     init = tf.global_variables_initializer()
     sess = tf.Session()
     sess.run(init)
-    epoch = 0
     zero_state = sess.run(gru.zero_state(batch_size, tf.float32))
     apply_zero_state = sess.run(gru.zero_state(1, tf.float32))
-    prev_loss = 0.0
 
     # apply mode
     if len(sys.argv) > 1:
         saver.restore(sess, sys.argv[1])
         while True:
             seed = raw_input("Enter phrase: ")
-            print make_sample(sess, x, state_x, apply_output, state, lengths, apply_zero_state, seed, max_time)
-
-    # training mode
-    while True:
-        l, c = 0.0, 0
-        cur_state = zero_state
-        for batch_x, batch_y, batch_lengths, progress in iterate_batches(data, batch_size, max_time):
-            _, cur_state, _l = sess.run([optimizer, state, loss], feed_dict = {x: batch_x, y: batch_y, state_x: cur_state, lengths: batch_lengths})
-            #_l /= (batch_size * max_time)
-            l += _l
-            c += 1
-            #print_matrs(dump)
-            print "Progress: %.1f%%, loss: %f" % (progress * 100.0, _l)
-            sys.stdout.flush()
-            #if _l < 0.3:
-            #    break
-        seed = "Посадил дед ре"
-        #seed = "#!/"
-        print make_sample(sess, x, state_x, apply_output, state, lengths, apply_zero_state, seed, max_time)
-        print "Loss: %.5f\tdiff with prev: %.5f\tlrate: %.5f\n" % (l / c, l / c - prev_loss, learning_rate)
-        sys.stdout.flush()
-        saver.save(sess, "dumps/dump", global_step = epoch)
-        epoch += 1
-        #if -l / c - prev_loss < 0.00001:
-        #    learning_rate *= 0.95
-        prev_loss = l / c
+            print make_sample(sess, x, state_x, apply_output, state, lengths, apply_zero_state, seed, max_time, 1000)
+    else:
+        # training mode
+        do_train(sess, saver, x, y, state_x, lengths,
+             apply_output, state, loss, optimizer,
+             zero_state, apply_zero_state,
+             data, source_data,
+             batch_size, max_time, 1000, "dumps/dump",
+             lambda epoch, epoch_loss: False)
 
 
 # entry point
