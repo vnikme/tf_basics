@@ -238,7 +238,7 @@ def main():
     else:
         # training mode
 
-        saver.restore(sess, "dumps/libru-1")
+        saver.restore(sess, "dumps/libru-0")
 
         # pre-train on lib.ru
         for k in xrange(libru_epochs):
