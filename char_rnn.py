@@ -4,12 +4,34 @@
 
 import tensorflow as tf
 import numpy as np
-import base64, json, random, sys
+import base64, fnmatch, json, os, random, sys
 
 
 all_syms = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZабвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ \n'\"()?!.,*+-/\%/\\$#@:;".decode("utf-8")
-#all_syms = "0123456789abcdefghijklmnopqrstuvwxyzабвгдеёжзийклмнопрстуфхцчшщъыьэюя \n'\"()?!.,*+-/\%/\\$#@:;".decode("utf-8")
-#all_syms = "Helo".decode("utf-8")
+
+
+def iterate_files_in_dir(path, mask):
+    for root, dirnames, filenames in os.walk(path):
+        for filename in fnmatch.filter(filenames, mask):
+            yield os.path.join(root, filename)
+
+
+def iterate_lib_ru(max_len):
+    files = list(iterate_files_in_dir("lib_ru/public_html/book", "*.txt"))
+    n = len(files)
+    for i in xrange(n):
+        try:
+            print "%s\t%.3f" % (files[i], i * 100.0 / n)
+            data = []
+            for ch in open(files[i], "rt").read().decode("koi8-r"):
+                if ch in all_syms:
+                    data.append(all_syms.index(ch))
+            if not data:
+                continue
+            for part in xrange(0, len(data), max_len - 1):
+                yield data[part : part + max_len] + [len(all_syms)]
+        except:
+            pass
 
 
 # read lines, yield symbols
@@ -144,11 +166,11 @@ def test():
     test_onehot()
 
 
-def do_train(sess, saver, x_placeholder, y_placeholder, state_placeholder, lengths_placeholder,
+def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_placeholder,
              output_operation, state_operation, loss, optimizer,
              zero_state, apply_zero_state,
              data, seed_data,
-             batch_size, max_time, max_sample_length, dumps_path, exit_func):
+             batch_size, max_time, max_sample_length, exit_func):
     epoch, prev_loss = 0, 0.0
     while True:
         l, c = 0.0, 0
@@ -163,7 +185,6 @@ def do_train(sess, saver, x_placeholder, y_placeholder, state_placeholder, lengt
         print make_sample(sess, x_placeholder, state_placeholder, output_operation, state_operation, lengths_placeholder, apply_zero_state, seed, max_time, max_sample_length)
         print "Loss: %.5f\tdiff with prev: %.5f\n" % (l / c, l / c - prev_loss)
         sys.stdout.flush()
-        saver.save(sess, dumps_path, global_step = epoch)
         epoch += 1
         prev_loss = l / c
         if exit_func(epoch, prev_loss):
@@ -173,16 +194,8 @@ def do_train(sess, saver, x_placeholder, y_placeholder, state_placeholder, lengt
 # do all stuff
 def main():
     # define params
-    path = "3be3d3ffd5e6e44608b948109849192b.log"
+    max_time, batch_size, state_size, learning_rate, books_to_process, max_book_len, libru_epochs = 10, 10000, 1024, 0.001, 50000, 500, 3
     vocabulary_size = len(all_syms) + 1
-
-    # read and convert data
-    source_data = list(iterate_messages(path))
-    data = transform_data_to_sliding_windows(source_data, 5)
-    random.shuffle(data)
-
-    # define params
-    max_time, batch_size, state_size, learning_rate = 16, len(data), 1024, 0.001
 
     # create variables and graph
     x = tf.placeholder(tf.int32, [None, max_time])
@@ -194,7 +207,7 @@ def main():
     # create learning graph
     state_x = tf.placeholder(tf.float32, [None, state_size])
     with tf.variable_scope('train'):
-        output, state = tf.nn.dynamic_rnn(gru, tf.one_hot(x, vocabulary_size, on_value = 1.0), initial_state = state_x, sequence_length = lengths, dtype = tf.float32, swap_memory = True)
+        output, state = tf.nn.dynamic_rnn(gru, tf.one_hot(x, vocabulary_size, on_value = 1.0), initial_state = state_x, sequence_length = lengths, dtype = tf.float32, swap_memory = False)
     output = make_projection(output, state_size, max_time, vocabulary_size, w, b)
     y = tf.placeholder(tf.int32, [None, max_time])
 
@@ -224,12 +237,39 @@ def main():
             print make_sample(sess, x, state_x, apply_output, state, lengths, apply_zero_state, seed, max_time, 1000)
     else:
         # training mode
-        do_train(sess, saver, x, y, state_x, lengths,
-             apply_output, state, loss, optimizer,
-             zero_state, apply_zero_state,
-             data, source_data,
-             batch_size, max_time, 1000, "dumps/dump",
-             lambda epoch, epoch_loss: False)
+
+        saver.restore(sess, "dumps/libru-1")
+
+        # pre-train on lib.ru
+        for k in xrange(libru_epochs):
+            data = []
+            for book in iterate_lib_ru(max_book_len):
+                data.append(book)
+                if len(data) >= books_to_process:
+                    random.shuffle(data)
+                    do_train(sess, x, y, state_x, lengths,
+                         apply_output, state, loss, optimizer,
+                         zero_state, apply_zero_state,
+                         data, [[all_syms.index(ch) for ch in "Однажды".decode("utf-8")], [all_syms.index(ch) for ch in "Once".decode("utf-8")]],
+                         batch_size, max_time, 1000,
+                         lambda epoch, epoch_loss: epoch >= 2)
+                    data = []
+            saver.save(sess, "dumps/libru", global_step = k)
+
+        # read and convert bot data
+        source_data = list(iterate_messages("3be3d3ffd5e6e44608b948109849192b.log"))
+        data = transform_data_to_sliding_windows(source_data, 5)
+        batch_size = len(data)
+        random.shuffle(data)
+        k = 0
+        while True:
+            do_train(sess, x, y, state_x, lengths,
+                 apply_output, state, loss, optimizer,
+                 zero_state, apply_zero_state,
+                 data, source_data,
+                 batch_size, max_time, 1000,
+                 lambda epoch, epoch_loss: epoch >= 10)
+            saver.save(sess, "dumps/bot", global_step = k)
 
 
 # entry point
