@@ -105,7 +105,7 @@ def choose_random(distr):
     cs = np.cumsum(distr)
     s = np.sum(distr)
     k = int(np.searchsorted(cs, np.random.rand(1) * s))
-    return min(k, len(distr) - 1)
+    return k
 
 
 def make_sample(sess, x, state_x, op, state_op, l, cur_state, seed, max_time, max_sample_length):
@@ -117,6 +117,8 @@ def make_sample(sess, x, state_x, op, state_op, l, cur_state, seed, max_time, ma
     res = res[0][0]
     #print "\t".join(map(lambda u: "%.2f" % u, res))
     cur_sym = choose_random(res)
+    if cur_sym == len(all_syms):
+        return result.encode("utf-8")
     result += all_syms[cur_sym]
     while True:
         res, cur_state = sess.run([op, state_op], feed_dict = {x: [[cur_sym] * max_time], state_x: cur_state, l: [1]})
