@@ -105,7 +105,7 @@ def choose_random(distr):
     cs = np.cumsum(distr)
     s = np.sum(distr)
     k = int(np.searchsorted(cs, np.random.rand(1) * s))
-    return k
+    return min(max(k, 0), len(distr) - 1)
 
 
 def make_sample(sess, x, state_x, op, state_op, l, cur_state, seed, max_time, max_sample_length):
