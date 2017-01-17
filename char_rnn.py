@@ -16,7 +16,7 @@ def iterate_files_in_dir(path, mask):
             yield os.path.join(root, filename)
 
 
-def iterate_lib_ru(max_len):
+def iterate_lib_ru():
     files = list(iterate_files_in_dir("lib_ru/public_html/book", "*.txt"))
     n = len(files)
     for i in xrange(n):
@@ -28,8 +28,7 @@ def iterate_lib_ru(max_len):
                     data.append(all_syms.index(ch))
             if not data:
                 continue
-            for part in xrange(0, len(data), max_len - 1):
-                yield data[part : part + max_len] + [len(all_syms)]
+            yield data + [len(all_syms)]
         except:
             pass
 
@@ -172,13 +171,13 @@ def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_plac
              output_operation, state_operation, loss, optimizer,
              zero_state, apply_zero_state,
              data, seed_data,
-             batch_size, max_time, max_sample_length, exit_func):
+             batch_size, max_time, clear_state, max_sample_length, exit_func):
     epoch, prev_loss = 0, 0.0
     while True:
         l, c = 0.0, 0
         cur_state = zero_state
-        for batch_x, batch_y, batch_lengths, clear_state, progress in iterate_batches(data, batch_size, max_time):
-            if clear_state:
+        for batch_x, batch_y, batch_lengths, do_clear_state, progress in iterate_batches(data, batch_size, max_time):
+            if clear_state and do_clear_state:
                 cur_state = zero_state
             _, cur_state, _l = sess.run([optimizer, state_operation, loss], feed_dict = {x_placeholder: batch_x, y_placeholder: batch_y, state_placeholder: cur_state, lengths_placeholder: batch_lengths})
             l += _l
@@ -198,7 +197,7 @@ def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_plac
 # do all stuff
 def main():
     # define params
-    max_time, batch_size, state_size, learning_rate, books_to_process, max_book_len, libru_epochs = 10, 10000, 1024, 0.001, 50000, 500, 5
+    max_time, batch_size, state_size, learning_rate, books_to_process, not_clear_state_iterations, libru_epochs = 10, 10000, 1024, 0.001, 1024, 3, 7
     vocabulary_size = len(all_syms) + 1
 
     # create variables and graph
@@ -247,21 +246,7 @@ def main():
         # pre-train on lib.ru
         for k in xrange(libru_epochs):
             data = []
-            for book in iterate_lib_ru(max_book_len):
-                data.append(book[:max_time])
-                if len(data) >= books_to_process:
-                    random.shuffle(data)
-                    do_train(sess, x, y, state_x, lengths,
-                         apply_output, state, loss, optimizer,
-                         zero_state, apply_zero_state,
-                         data, [[all_syms.index(ch) for ch in "Однажды".decode("utf-8")], [all_syms.index(ch) for ch in "Once".decode("utf-8")]],
-                         batch_size, max_time, 100,
-                         lambda epoch, epoch_loss: epoch >= 2)
-                    data = []
-
-        for k in xrange(libru_epochs):
-            data = []
-            for book in iterate_lib_ru(max_book_len):
+            for book in iterate_lib_ru():
                 data.append(book)
                 if len(data) >= books_to_process:
                     random.shuffle(data)
@@ -269,8 +254,8 @@ def main():
                          apply_output, state, loss, optimizer,
                          zero_state, apply_zero_state,
                          data, [[all_syms.index(ch) for ch in "Однажды".decode("utf-8")], [all_syms.index(ch) for ch in "Once".decode("utf-8")]],
-                         batch_size, max_time, 1000,
-                         lambda epoch, epoch_loss: epoch >= 2)
+                         batch_size, max_time, k >= not_clear_state_iterations, 1000,
+                         lambda epoch, epoch_loss: epoch >= 1)
                     data = []
             saver.save(sess, "dumps/libru", global_step = k)
 
