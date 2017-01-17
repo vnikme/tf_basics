@@ -85,7 +85,7 @@ def iterate_batches(data, max_batch, max_time):
                     batch_lengths.append(0)
             if all_zero:
                 break
-            yield batch_data_x, batch_data_y, batch_lengths, float(row) / ((n + max_batch - 1) / max_batch)
+            yield batch_data_x, batch_data_y, batch_lengths, col == 0, float(row) / ((n + max_batch - 1) / max_batch)
             col += max_time
 
 
@@ -177,7 +177,9 @@ def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_plac
     while True:
         l, c = 0.0, 0
         cur_state = zero_state
-        for batch_x, batch_y, batch_lengths, progress in iterate_batches(data, batch_size, max_time):
+        for batch_x, batch_y, batch_lengths, clear_state, progress in iterate_batches(data, batch_size, max_time):
+            if clear_state:
+                cur_state = zero_state
             _, cur_state, _l = sess.run([optimizer, state_operation, loss], feed_dict = {x_placeholder: batch_x, y_placeholder: batch_y, state_placeholder: cur_state, lengths_placeholder: batch_lengths})
             l += _l
             c += 1
@@ -196,7 +198,7 @@ def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_plac
 # do all stuff
 def main():
     # define params
-    max_time, batch_size, state_size, learning_rate, books_to_process, max_book_len, libru_epochs = 10, 10000, 1024, 0.001, 50000, 500, 3
+    max_time, batch_size, state_size, learning_rate, books_to_process, max_book_len, libru_epochs = 10, 10000, 1024, 0.001, 50000, 500, 5
     vocabulary_size = len(all_syms) + 1
 
     # create variables and graph
@@ -240,9 +242,23 @@ def main():
     else:
         # training mode
 
-        saver.restore(sess, "dumps/libru-0")
+        #saver.restore(sess, "dumps/libru-0")
 
         # pre-train on lib.ru
+        for k in xrange(libru_epochs):
+            data = []
+            for book in iterate_lib_ru(max_book_len):
+                data.append(book[:max_time])
+                if len(data) >= books_to_process:
+                    random.shuffle(data)
+                    do_train(sess, x, y, state_x, lengths,
+                         apply_output, state, loss, optimizer,
+                         zero_state, apply_zero_state,
+                         data, [[all_syms.index(ch) for ch in "Однажды".decode("utf-8")], [all_syms.index(ch) for ch in "Once".decode("utf-8")]],
+                         batch_size, max_time, 100,
+                         lambda epoch, epoch_loss: epoch >= 2)
+                    data = []
+
         for k in xrange(libru_epochs):
             data = []
             for book in iterate_lib_ru(max_book_len):
@@ -262,6 +278,7 @@ def main():
         source_data = list(iterate_messages("3be3d3ffd5e6e44608b948109849192b.log"))
         data = transform_data_to_sliding_windows(source_data, 5)
         batch_size = len(data)
+        zero_state = sess.run(gru.zero_state(batch_size, tf.float32))
         random.shuffle(data)
         k = 0
         while True:
