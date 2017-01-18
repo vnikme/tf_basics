@@ -18,6 +18,7 @@ def iterate_files_in_dir(path, mask):
 
 def iterate_lib_ru():
     files = list(iterate_files_in_dir("lib_ru/public_html/book", "*.txt"))
+    #files = list(iterate_files_in_dir("data", "all"))
     n = len(files)
     for i in xrange(n):
         try:
@@ -31,6 +32,7 @@ def iterate_lib_ru():
             yield data + [len(all_syms)]
         except:
             pass
+    yield None
 
 
 # read lines, yield symbols
@@ -62,12 +64,14 @@ def iterate_batches(data, max_batch, max_time):
     for row in xrange((n + max_batch - 1) / max_batch):
         col = 0
         while True:
-            all_zero = True
+            all_zero, max_col, filled, total = True, 0, 0, 1e-38
             batch_data_x, batch_data_y, batch_lengths = [], [], []
             for i in xrange(max_batch):
                 if row * max_batch + i < n:
+                    max_col = max(col, len(data[row * max_batch + i]))
                     k = len(data[row * max_batch + i]) - 1 - col
                     k = max(min(k, max_time), 0)
+                    filled += k
                     x = data[row * max_batch + i][col : col + k]
                     y = data[row * max_batch + i][col + 1 : col + 1 + k]
                     if k < max_time:
@@ -82,11 +86,11 @@ def iterate_batches(data, max_batch, max_time):
                     batch_data_x.append(np.asarray([0] * max_time))
                     batch_data_y.append(np.asarray([0] * max_time))
                     batch_lengths.append(0)
+                total += max_time
             if all_zero:
                 break
-            yield batch_data_x, batch_data_y, batch_lengths, col == 0, float(row) / ((n + max_batch - 1) / max_batch)
+            yield batch_data_x, batch_data_y, batch_lengths, col == 0, float(row) / ((n + max_batch - 1) / max_batch), float(col) / max_col, filled / total
             col += max_time
-
 
 
 # input shape: batch*time*state
@@ -176,13 +180,13 @@ def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_plac
     while True:
         l, c = 0.0, 0
         cur_state = zero_state
-        for batch_x, batch_y, batch_lengths, do_clear_state, progress in iterate_batches(data, batch_size, max_time):
+        for batch_x, batch_y, batch_lengths, do_clear_state, row_progress, col_progress, filled in iterate_batches(data, batch_size, max_time):
             if clear_state and do_clear_state:
                 cur_state = zero_state
             _, cur_state, _l = sess.run([optimizer, state_operation, loss], feed_dict = {x_placeholder: batch_x, y_placeholder: batch_y, state_placeholder: cur_state, lengths_placeholder: batch_lengths})
             l += _l
             c += 1
-            print "Progress: %.1f%%, loss: %f" % (progress * 100.0, _l)
+            print "row: %.5f%%, col: %.5f%%, filled: %.5f%%, loss: %f" % (row_progress * 100.0, col_progress * 100.0, filled * 100.0, _l)
             sys.stdout.flush()
         seed = seed_data[min(int(random.random() * len(seed_data)), len(seed_data) - 1)]
         print make_sample(sess, x_placeholder, state_placeholder, output_operation, state_operation, lengths_placeholder, apply_zero_state, seed, max_time, max_sample_length)
@@ -197,7 +201,8 @@ def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_plac
 # do all stuff
 def main():
     # define params
-    max_time, batch_size, state_size, learning_rate, books_to_process, not_clear_state_iterations, libru_epochs = 10, 10000, 1024, 0.001, 1024, 3, 7
+    max_time, batch_size, state_size, learning_rate, books_to_process, not_clear_state_iterations, libru_epochs = 10, 10000, 1024, 0.001, 1024, 1, 3
+    #max_time, batch_size, state_size, learning_rate, books_to_process, not_clear_state_iterations, libru_epochs = 10, 1, 128, 0.001, 100, 3, 7
     vocabulary_size = len(all_syms) + 1
 
     # create variables and graph
@@ -247,8 +252,9 @@ def main():
         for k in xrange(libru_epochs):
             data = []
             for book in iterate_lib_ru():
-                data.append(book)
-                if len(data) >= books_to_process:
+                if book:
+                    data.append(book)
+                if len(data) >= books_to_process or not book:
                     random.shuffle(data)
                     do_train(sess, x, y, state_x, lengths,
                          apply_output, state, loss, optimizer,
