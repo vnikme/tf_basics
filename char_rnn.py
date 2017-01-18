@@ -68,7 +68,7 @@ def iterate_batches(data, max_batch, max_time):
             batch_data_x, batch_data_y, batch_lengths = [], [], []
             for i in xrange(max_batch):
                 if row * max_batch + i < n:
-                    max_col = max(col, len(data[row * max_batch + i]))
+                    max_col = max(max_col, len(data[row * max_batch + i]))
                     k = len(data[row * max_batch + i]) - 1 - col
                     k = max(min(k, max_time), 0)
                     filled += k
@@ -201,7 +201,7 @@ def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_plac
 # do all stuff
 def main():
     # define params
-    max_time, batch_size, state_size, learning_rate, books_to_process, not_clear_state_iterations, libru_epochs = 10, 10000, 1024, 0.001, 1024, 1, 3
+    max_time, batch_size, state_size, learning_rate, books_to_process, not_clear_state_iterations, libru_epochs = 10, 4000, 1024, 0.001, 4000, 1, 3
     #max_time, batch_size, state_size, learning_rate, books_to_process, not_clear_state_iterations, libru_epochs = 10, 1, 128, 0.001, 100, 3, 7
     vocabulary_size = len(all_syms) + 1
 
