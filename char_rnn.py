@@ -65,7 +65,7 @@ def iterate_batches(data, max_batch, max_time):
         col = 0
         while True:
             all_zero, max_col, filled, total = True, 0, 0, 1e-38
-            batch_data_x, batch_data_y, batch_lengths = [], [], []
+            batch_data_x, batch_data_y, batch_lengths, batch_masks = [], [], [], []
             for i in xrange(max_batch):
                 if row * max_batch + i < n:
                     max_col = max(max_col, len(data[row * max_batch + i]))
@@ -80,16 +80,18 @@ def iterate_batches(data, max_batch, max_time):
                     batch_data_x.append(x)
                     batch_data_y.append(y)
                     batch_lengths.append(k)
+                    batch_masks.append(np.asarray([1.0] * k + [0.0] * (max_time - k)))
                     if k != 0:
                         all_zero = False
                 else:
                     batch_data_x.append(np.asarray([0] * max_time))
                     batch_data_y.append(np.asarray([0] * max_time))
                     batch_lengths.append(0)
+                    batch_masks.append(np.asarray([0.0] * max_time))
                 total += max_time
             if all_zero:
                 break
-            yield batch_data_x, batch_data_y, batch_lengths, col == 0, float(row) / ((n + max_batch - 1) / max_batch), float(col) / max_col, filled / total
+            yield batch_data_x, batch_data_y, batch_lengths, batch_masks, col == 0, float(row) / ((n + max_batch - 1) / max_batch), float(col) / max_col, filled / total
             col += max_time
 
 
@@ -171,7 +173,7 @@ def test():
     test_onehot()
 
 
-def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_placeholder,
+def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_placeholder, mask_placeholder,
              output_operation, state_operation, loss, optimizer,
              zero_state, apply_zero_state,
              data, seed_data,
@@ -180,10 +182,10 @@ def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_plac
     while True:
         l, c = 0.0, 0
         cur_state = zero_state
-        for batch_x, batch_y, batch_lengths, do_clear_state, row_progress, col_progress, filled in iterate_batches(data, batch_size, max_time):
+        for batch_x, batch_y, batch_lengths, batch_masks, do_clear_state, row_progress, col_progress, filled in iterate_batches(data, batch_size, max_time):
             if clear_state and do_clear_state:
                 cur_state = zero_state
-            _, cur_state, _l = sess.run([optimizer, state_operation, loss], feed_dict = {x_placeholder: batch_x, y_placeholder: batch_y, state_placeholder: cur_state, lengths_placeholder: batch_lengths})
+            _, cur_state, _l = sess.run([optimizer, state_operation, loss], feed_dict = {x_placeholder: batch_x, y_placeholder: batch_y, state_placeholder: cur_state, lengths_placeholder: batch_lengths, mask_placeholder: batch_masks})
             l += _l
             c += 1
             print "row: %.5f%%, col: %.5f%%, filled: %.5f%%, loss: %f" % (row_progress * 100.0, col_progress * 100.0, filled * 100.0, _l)
@@ -201,13 +203,14 @@ def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_plac
 # do all stuff
 def main():
     # define params
-    max_time, batch_size, state_size, learning_rate, books_to_process, not_clear_state_iterations, libru_epochs = 10, 4000, 1024, 0.001, 4000, 1, 3
+    max_time, batch_size, state_size, learning_rate, books_to_process, not_clear_state_iterations, libru_epochs = 10, 200, 1024, 0.001, 4000, 1, 3
     #max_time, batch_size, state_size, learning_rate, books_to_process, not_clear_state_iterations, libru_epochs = 10, 1, 128, 0.001, 100, 3, 7
     vocabulary_size = len(all_syms) + 1
 
     # create variables and graph
     x = tf.placeholder(tf.int32, [None, max_time])
     lengths = tf.placeholder(tf.int32, [None])
+    mask = tf.placeholder(tf.float32, [None, max_time])
     gru = tf.nn.rnn_cell.GRUCell(state_size)
     w = tf.Variable(tf.random_normal([state_size, vocabulary_size]))
     b = tf.Variable(tf.random_normal([vocabulary_size]))
@@ -221,7 +224,7 @@ def main():
 
     # define loss and optimizer
     ohy = tf.one_hot(y, vocabulary_size, on_value = 1.0)
-    loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(output, ohy))
+    loss = tf.reduce_mean(tf.mul(tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(output, ohy), 2), mask)) / vocabulary_size
     optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(loss)
 
     # renorm output logits for sampling
@@ -255,8 +258,9 @@ def main():
                 if book:
                     data.append(book)
                 if len(data) >= books_to_process or not book:
-                    random.shuffle(data)
-                    do_train(sess, x, y, state_x, lengths,
+                    #random.shuffle(data)
+                    data.sort(key = lambda r: -len(r))
+                    do_train(sess, x, y, state_x, lengths, mask,
                          apply_output, state, loss, optimizer,
                          zero_state, apply_zero_state,
                          data, [[all_syms.index(ch) for ch in "Однажды".decode("utf-8")], [all_syms.index(ch) for ch in "Once".decode("utf-8")]],
@@ -273,7 +277,7 @@ def main():
         random.shuffle(data)
         k = 0
         while True:
-            do_train(sess, x, y, state_x, lengths,
+            do_train(sess, x, y, state_x, lengths, mask,
                  apply_output, state, loss, optimizer,
                  zero_state, apply_zero_state,
                  data, source_data,
