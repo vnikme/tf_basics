@@ -177,13 +177,13 @@ def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_plac
              output_operation, state_operation, loss, optimizer,
              zero_state, apply_zero_state,
              data, seed_data,
-             batch_size, max_time, clear_state, max_sample_length, exit_func):
+             batch_size, max_time, always_clear_state, max_sample_length, exit_func):
     epoch, prev_loss = 0, 0.0
     while True:
         l, c = 0.0, 0
         cur_state = zero_state
         for batch_x, batch_y, batch_lengths, batch_masks, do_clear_state, row_progress, col_progress, filled in iterate_batches(data, batch_size, max_time):
-            if clear_state and do_clear_state:
+            if always_clear_state or do_clear_state:
                 cur_state = zero_state
             _, cur_state, _l = sess.run([optimizer, state_operation, loss], feed_dict = {x_placeholder: batch_x, y_placeholder: batch_y, state_placeholder: cur_state, lengths_placeholder: batch_lengths, mask_placeholder: batch_masks})
             l += _l
@@ -203,7 +203,7 @@ def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_plac
 # do all stuff
 def main():
     # define params
-    max_time, batch_size, state_size, learning_rate, books_to_process, not_clear_state_iterations, libru_epochs = 10, 200, 1024, 0.001, 4000, 1, 3
+    max_time, batch_size, batch_size_1, state_size, learning_rate, books_to_process, books_to_process_1, book_length, not_clear_state_iterations, libru_epochs = 10, 500, 10000, 1024, 0.001, 10000, 100000, 1000, 2, 5
     #max_time, batch_size, state_size, learning_rate, books_to_process, not_clear_state_iterations, libru_epochs = 10, 1, 128, 0.001, 100, 3, 7
     vocabulary_size = len(all_syms) + 1
 
@@ -238,6 +238,7 @@ def main():
     sess = tf.Session()
     sess.run(init)
     zero_state = sess.run(gru.zero_state(batch_size, tf.float32))
+    zero_state_1 = sess.run(gru.zero_state(batch_size_1, tf.float32))
     apply_zero_state = sess.run(gru.zero_state(1, tf.float32))
 
     # apply mode
@@ -256,15 +257,23 @@ def main():
             data = []
             for book in iterate_lib_ru():
                 if book:
-                    data.append(book)
-                if len(data) >= books_to_process or not book:
-                    #random.shuffle(data)
-                    data.sort(key = lambda r: -len(r))
+                    if k >= not_clear_state_iterations:
+                        data.append(book)
+                    else:
+                        for i in xrange(0, len(book), book_length):
+                            data.append(book[i : i + book_length])
+                if len(data) >= (books_to_process if k>= not_clear_state_iterations else books_to_process_1) or not book:
+                    if k >= not_clear_state_iterations:
+                        data.sort(key = lambda r: len(r))
+                    else:
+                        random.shuffle(data)
+                        data = data[:len(data) / batch_size_1 * batch_size_1]
                     do_train(sess, x, y, state_x, lengths, mask,
                          apply_output, state, loss, optimizer,
-                         zero_state, apply_zero_state,
+                         zero_state if k>= not_clear_state_iterations else zero_state_1, apply_zero_state,
                          data, [[all_syms.index(ch) for ch in "Однажды".decode("utf-8")], [all_syms.index(ch) for ch in "Once".decode("utf-8")]],
-                         batch_size, max_time, k >= not_clear_state_iterations, 1000,
+                         batch_size if k >= not_clear_state_iterations else batch_size_1, max_time,
+                         k < not_clear_state_iterations, 1000,
                          lambda epoch, epoch_loss: epoch >= 1)
                     data = []
             saver.save(sess, "dumps/libru", global_step = k)
