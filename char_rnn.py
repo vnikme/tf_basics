@@ -203,7 +203,7 @@ def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_plac
 # do all stuff
 def main():
     # define params
-    max_time, batch_size, batch_size_1, state_size, learning_rate, books_to_process, books_to_process_1, book_length, not_clear_state_iterations, libru_epochs = 10, 500, 10000, 1024, 0.001, 10000, 100000, 1000, 2, 5
+    max_time, batch_size, batch_size_1, state_size, learning_rate, books_to_process, books_to_process_1, book_length, not_clear_state_iterations, libru_epochs = 10, 500, 10000, 1024, 0.001, 10000, 100000, 1000, 2, 0
     #max_time, batch_size, state_size, learning_rate, books_to_process, not_clear_state_iterations, libru_epochs = 10, 1, 128, 0.001, 100, 3, 7
     vocabulary_size = len(all_syms) + 1
 
@@ -250,7 +250,7 @@ def main():
     else:
         # training mode
 
-        #saver.restore(sess, "dumps/libru-0")
+        saver.restore(sess, "dumps/libru-1")
 
         # pre-train on lib.ru
         for k in xrange(libru_epochs):
@@ -290,7 +290,7 @@ def main():
                  apply_output, state, loss, optimizer,
                  zero_state, apply_zero_state,
                  data, source_data,
-                 batch_size, max_time, 1000,
+                 batch_size, max_time, 1000, False,
                  lambda epoch, epoch_loss: epoch >= 10)
             saver.save(sess, "dumps/bot", global_step = k)
 
