@@ -4,7 +4,7 @@
 
 import numpy as np
 import tensorflow as tf
-import base64, fnmatch, json, os, random, sys
+import base64, fnmatch, json, math, os, random, sys
 
 
 LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZабвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ".decode("utf-8")
@@ -50,9 +50,9 @@ def word_to_codes(word):
     return [ALL_SYMS.index(ch) for ch in word]
 
 
-def iterate_words(path, mask):
+def _iterate_words(char_iterator):
     is_space, word = True, ""
-    for ch in iterate_chars(path, mask):
+    for ch in char_iterator:
         if ch in WORDBRK:
             if word:
                 yield word
@@ -73,6 +73,12 @@ def iterate_words(path, mask):
         yield word
 
 
+def iterate_words(char_iterator, max_word_len):
+    for word in _iterate_words(char_iterator):
+        for i in xrange(0, len(word), max_word_len):
+            yield word[i : i + max_word_len]
+
+
 def make_targets(word, max_word_len):
     word = word_to_codes(word)
     l = len(word)
@@ -86,26 +92,40 @@ def make_targets(word, max_word_len):
     return word, dword, target
 
 
-def iterate_batches(batch_size, max_word_len):
-    batch_x, batch_dx, batch_y = [], [], []
-    for word in iterate_words("lib_ru/public_html/book", "*.txt"):
-        l = len(word)
-        if l > max_word_len:
-            continue
-        word, dword, target = make_targets(word, max_word_len)
-        batch_x.append(word)
-        batch_dx.append(dword)
-        batch_y.append(target)
+class TWord:
+    def __init__(self, word, dword, target):
+        self.count = 1
+        self.word = word
+        self.dword = dword
+        self.target = target
+
+
+def read_words(max_word_len):
+    data = {}
+    for src_word in iterate_words(iterate_chars("lib_ru/public_html/book", "*.txt"), max_word_len):
+        if src_word not in data:
+            word, dword, target = make_targets(src_word, max_word_len)
+            data[src_word] = TWord(word, dword, target)
+        else:
+            data[src_word].count += 1
+        if len(data) >= 100000:
+            break
+    return data
+
+
+def iterate_batches(data, batch_size):
+    words = data.keys()
+    random.shuffle(words)
+    batch_x, batch_dx, batch_y, batch_m = [], [], [], []
+    for txt in words:
+        word = data[txt]
+        batch_x.append(word.word)
+        batch_dx.append(word.dword)
+        batch_y.append(word.target)
+        batch_m.append(math.log(word.count + 1.0))
         if len(batch_x) == batch_size:
-            yield batch_x, batch_dx, batch_y
-            batch_x, batch_dx, batch_y = [], [], []
-    if batch_x:
-        k = batch_size - len(batch_x)
-        word, dword, target = make_targets("".decode("utf-8"), max_word_len)
-        batch_x += ([word] * k)
-        batch_dx += ([dword] * k)
-        batch_y += ([target] * k)
-        yield batch_x, batch_dx, batch_y
+            yield batch_x, batch_dx, batch_y, batch_m
+            batch_x, batch_dx, batch_y, batch_m = [], [], [], []
 
 
 # input shape: batch*time*input_state
@@ -151,9 +171,14 @@ def make_sample(sess, encoder_x, encoder_output, decoder_x, decoder_state_x, dec
     return result
 
 
+def sample_text(max_word_len):
+    text = "При этом экс-губернатор крайне разозлился тем, что в Интернете активно распространяются фотографии, где он выглядит, как бомж, прибывший на знаковое политическое событие в Соединенные Штаты. Так, на одном из снимков видно, что Саакашвили в непрезентабельной одежде стоит в зале аэропорта Нью-Йорка. Создается впечатление, что утром он был сильно пьян и поэтому надел на себя первое, что попалось ему под руку. На другом снимке Саакашвили одиноко стоит в кустах с телефоном в руке в то время, когда основная публика находится на инаугурации Трампа."
+    return iterate_words(text.decode("utf-8"), max_word_len)
+
+
 def main():
     # define params
-    max_word_len, batch_size, encoder_state_size, decoder_state_size, learning_rate = 25, 10000, 64, 256, 0.00001
+    max_word_len, batch_size, encoder_state_size, decoder_state_size, learning_rate = 25, 10000, 64, 128, 0.0001
 
     # create variables and graph
     encoder_x = tf.placeholder(tf.int32, [None, max_word_len])
@@ -178,11 +203,16 @@ def main():
     with tf.variable_scope('decoder', reuse = True):
         output, apply_decoder_state = tf.nn.dynamic_rnn(decoder_cell, tf.one_hot(apply_decoder_x, VOCABULARY_SIZE, on_value = 1.0), initial_state = decoder_state_placeholder, dtype = tf.float32)
     apply_decoder_output = projection(output, decoder_state_size, 1, VOCABULARY_SIZE, decoder_w, decoder_b)
+    mults = tf.placeholder(tf.float32, [None])
     y = tf.placeholder(tf.int32, [None, max_word_len + 1])
 
     # define loss and optimizer
     ohy = tf.one_hot(y, VOCABULARY_SIZE, on_value = 1.0)
-    loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(decoder_output, ohy))
+    loss = tf.nn.sigmoid_cross_entropy_with_logits(decoder_output, ohy)
+    loss = tf.reduce_mean(loss, 2)
+    loss = tf.reduce_mean(loss, 1)
+    loss = tf.mul(loss, mults)
+    loss = tf.reduce_mean(loss)
     optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(loss)
 
     # renorm output logits for sampling
@@ -193,18 +223,29 @@ def main():
     sess = tf.Session()
     sess.run(init)
 
+    data = read_words(max_word_len)
+
+    saver = tf.train.Saver(max_to_keep = 100)
+
+    epoch = 0
     while True:
-        cnt = 0
-        for batch_x, batch_dx, batch_y in iterate_batches(batch_size, max_word_len):
+        cnt, l = 1e-38, 0.0
+        for batch_x, batch_dx, batch_y, batch_m in iterate_batches(data, batch_size):
             cnt += 1
-            _, _l = sess.run([optimizer, loss], feed_dict = {encoder_x: batch_x, decoder_x: batch_dx, y: batch_y})
-            if cnt % 100 == 0:
-                print "loss: %f\titer: %d" % (_l, cnt)
-                for word in ["вадик", "вадим", "Вадим", "вАдИм", "и", "к", "сказал", "сказала", "Сказал", "синхрофазотрон", "hi", "am", "hello", "Hello", "world"]:
-                    predicted = make_sample(sess, encoder_x, encoder_output, apply_decoder_x, decoder_state_placeholder, apply_decoder_output, apply_decoder_state, word.decode("utf-8"), max_word_len)
-                    print "%s | %s" % (word, predicted)
-                print
-            sys.stdout.flush()
+            _, _l = sess.run([optimizer, loss], feed_dict = {encoder_x: batch_x, decoder_x: batch_dx, y: batch_y, mults: batch_m})
+            l += _l
+        print "loss: %f\tepoch: %d" % (l / cnt, epoch)
+        text = ""
+        for word in sample_text(max_word_len):
+            predicted = make_sample(sess, encoder_x, encoder_output, apply_decoder_x, decoder_state_placeholder, apply_decoder_output, apply_decoder_state, word, max_word_len)
+            text += predicted
+        print text
+        print
+        sys.stdout.flush()
+        epoch += 1
+        saver.save(sess, "words/char")
+        exit(1)
+
 
 
 # entry point

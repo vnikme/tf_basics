@@ -64,8 +64,7 @@ def iterate_words(path, mask):
         yield word
 
 
-# do all stuff
-def main():
+def process_words():
     cnt, words, lens, bad = 0, set(), dict(), set()
     for word in iterate_words("lib_ru/public_html/book", "*.txt"):
         l = len(word)
@@ -81,6 +80,70 @@ def main():
             print cnt, len(words), len(bad)
     for l in sorted(lens.keys()):
         print l, lens[l]
+
+
+def iterate_sentences(path, mask):
+    sent = []
+    for word in iterate_words(path, mask):
+        sent.append(word)
+        if word in sentbrk:
+            yield sent
+            sent = []
+    if sent:
+        yield sent
+
+
+def avg(d):
+    s, c = 0.0, 1e-38
+    for k, v in d:
+        s += (k * v)
+        c += v
+    return s / c
+
+
+def med(d):
+    d = sorted(d, key = lambda x: -x[1])
+    c, s = 0, 0
+    for k, v in d:
+        s += v
+    for k, v in d:
+        c += v
+        if c >= s / 2:
+            return k
+    return d[-1][0]
+
+
+def mod(d):
+    d = sorted(d, key = lambda x: x[0])
+    m = 4
+    for i in xrange(5, len(d)):
+        if d[i][1] > d[m][1]:
+            m = i
+    return d[m][0]
+
+
+def print_distr_analysis(m):
+    d = []
+    for k, v in m.iteritems():
+        d.append((k, v))
+    print avg(d), med(d), mod(d)
+
+
+def process_sentences():
+    cnt, m = 0, dict()
+    for sent in iterate_sentences("lib_ru/public_html/book", "*.txt"):
+        cnt += 1
+        l = len(sent)
+        #if l > 100:
+        #    print l, "".join([w.encode("utf-8") for w in sent]) + "\n"
+        m[l] = m.get(l, 0) + 1
+        if cnt % 100000 == 0:
+            print_distr_analysis(m)
+
+
+def main():
+    #process_words()
+    process_sentences()
 
 
 # entry point
