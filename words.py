@@ -4,7 +4,7 @@
 
 import numpy as np
 import tensorflow as tf
-import base64, fnmatch, json, math, os, random, sys
+import base64, fnmatch, json, math, os, random, shutil, sys
 
 
 LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZабвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ".decode("utf-8")
@@ -108,8 +108,8 @@ def read_words(max_word_len):
             data[src_word] = TWord(word, dword, target)
         else:
             data[src_word].count += 1
-        if len(data) >= 100000:
-            break
+        #if len(data) >= 100000:
+        #    break
     return data
 
 
@@ -253,6 +253,10 @@ def main():
         print text
         print
         sys.stdout.flush()
+        try:
+            shutil.copy("dump.char", "dump.char.bak")
+        except:
+            pass
         open("dump.char", "wt").write(to_json(sess))
         epoch += 1
 
