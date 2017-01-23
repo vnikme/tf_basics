@@ -108,8 +108,8 @@ def read_words(max_word_len):
             data[src_word] = TWord(word, dword, target)
         else:
             data[src_word].count += 1
-        #if len(data) >= 100000:
-        #    break
+        if len(data) >= 100000:
+            break
     return data
 
 
@@ -238,8 +238,6 @@ def main():
 
     data = read_words(max_word_len)
 
-    saver = tf.train.Saver(max_to_keep = 100)
-
     epoch = 0
     while True:
         cnt, l = 1e-38, 0.0
@@ -252,12 +250,11 @@ def main():
         for word in sample_text(max_word_len):
             predicted = make_sample(sess, encoder_x, encoder_output, apply_decoder_x, decoder_state_placeholder, apply_decoder_output, apply_decoder_state, word, max_word_len)
             text += predicted
-        #print text
-        from_json(to_json(sess))
+        print text
         print
         sys.stdout.flush()
+        open("dump.char", "wt").write(to_json(sess))
         epoch += 1
-        saver.save(sess, "words/char")
 
 
 
