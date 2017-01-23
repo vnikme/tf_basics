@@ -242,6 +242,14 @@ def main():
             text += predicted
         print text
         sys.stdout.flush()
+    elif False:
+        from_json(open("dump.char", "rt").read(), sess)
+        while True:
+            text = ""
+            for word in iterate_words(raw_input().decode("utf-8"), max_word_len):
+                predicted = make_sample(sess, encoder_x, encoder_output, apply_decoder_x, decoder_state_placeholder, apply_decoder_output, apply_decoder_state, word, max_word_len, max_word_len * 3)
+                text += predicted
+            print text
     else:
         init = tf.global_variables_initializer()
         sess.run(init)
