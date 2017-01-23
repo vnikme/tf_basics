@@ -154,7 +154,7 @@ def choose_random(distr):
     return min(max(k, 0), len(distr) - 1)
 
 
-def make_sample(sess, encoder_x, encoder_output, decoder_x, decoder_state_x, decoder_op, decoder_state_op, seed, max_word_len):
+def make_sample(sess, encoder_x, encoder_output, decoder_x, decoder_state_x, decoder_op, decoder_state_op, seed, max_word_len, limit_word_len):
     word, _, __ = make_targets(seed, max_word_len)
     cur_state = sess.run(encoder_output, feed_dict = {encoder_x: [word]})[0]
     cur_sym = GO
@@ -163,12 +163,12 @@ def make_sample(sess, encoder_x, encoder_output, decoder_x, decoder_state_x, dec
         probs, cur_state = sess.run([decoder_op, decoder_state_op], feed_dict = {decoder_x: [[cur_sym]], decoder_state_x: [cur_state]})
         probs, cur_state = probs[0][0], cur_state[0]
         cur_sym = choose_random(probs)
-        if cur_sym == STOP or len(result) >= max_word_len:
+        if cur_sym == STOP or len(result) >= limit_word_len:
             break
         if cur_sym == GO:
             continue
-        result += ALL_SYMS[cur_sym].encode("utf-8")
-    return result
+        result += ALL_SYMS[cur_sym]
+    return result.encode("utf-8")
 
 
 def sample_text(max_word_len):
@@ -191,7 +191,7 @@ def from_json(js, sess):
 
 def main():
     # define params
-    max_word_len, batch_size, encoder_state_size, decoder_state_size, learning_rate = 25, 10000, 64, 256, 0.0001
+    max_word_len, batch_size, encoder_state_size, decoder_state_size, learning_rate = 25, 10000, 64, 256, 0.00001
 
     # create variables and graph
     encoder_x = tf.placeholder(tf.int32, [None, max_word_len])
@@ -238,13 +238,13 @@ def main():
         from_json(open("dump.char", "rt").read(), sess)
         text = ""
         for word in sample_text(max_word_len):
-            predicted = make_sample(sess, encoder_x, encoder_output, apply_decoder_x, decoder_state_placeholder, apply_decoder_output, apply_decoder_state, word, max_word_len)
+            predicted = make_sample(sess, encoder_x, encoder_output, apply_decoder_x, decoder_state_placeholder, apply_decoder_output, apply_decoder_state, word, max_word_len, max_word_len * 3)
             text += predicted
         print text
-        exit(0)
-
-    init = tf.global_variables_initializer()
-    sess.run(init)
+        sys.stdout.flush()
+    else:
+        init = tf.global_variables_initializer()
+        sess.run(init)
     data = read_words(max_word_len)
 
     epoch = 0
@@ -255,11 +255,12 @@ def main():
             _, _l = sess.run([optimizer, loss], feed_dict = {encoder_x: batch_x, decoder_x: batch_dx, y: batch_y, mults: batch_m})
             l += _l
         print "loss: %f\tepoch: %d" % (l / cnt, epoch)
-        text = ""
+        original, predicted = "", ""
         for word in sample_text(max_word_len):
-            predicted = make_sample(sess, encoder_x, encoder_output, apply_decoder_x, decoder_state_placeholder, apply_decoder_output, apply_decoder_state, word, max_word_len)
-            text += predicted
-        print text
+            original += word.encode("utf-8")
+            predicted += make_sample(sess, encoder_x, encoder_output, apply_decoder_x, decoder_state_placeholder, apply_decoder_output, apply_decoder_state, word, max_word_len, max_word_len * 3)
+        print original
+        print predicted
         print
         sys.stdout.flush()
         try:
