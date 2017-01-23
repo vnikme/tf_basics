@@ -108,8 +108,8 @@ def read_words(max_word_len):
             data[src_word] = TWord(word, dword, target)
         else:
             data[src_word].count += 1
-        if len(data) >= 100000:
-            break
+        #if len(data) >= 100000:
+        #    break
     return data
 
 
@@ -176,9 +176,22 @@ def sample_text(max_word_len):
     return iterate_words(text.decode("utf-8"), max_word_len)
 
 
+def to_json(sess):
+    m = {}
+    for var in tf.global_variables():
+        m[var.name] = var.eval(sess).tolist()
+    return json.dumps(m)
+
+
+def from_json(js):
+    m = json.loads(js)
+    for var in tf.global_variables():
+        var.assign(m[var.name])
+
+
 def main():
     # define params
-    max_word_len, batch_size, encoder_state_size, decoder_state_size, learning_rate = 25, 10000, 64, 128, 0.0001
+    max_word_len, batch_size, encoder_state_size, decoder_state_size, learning_rate = 25, 10000, 64, 256, 0.0001
 
     # create variables and graph
     encoder_x = tf.placeholder(tf.int32, [None, max_word_len])
@@ -239,12 +252,12 @@ def main():
         for word in sample_text(max_word_len):
             predicted = make_sample(sess, encoder_x, encoder_output, apply_decoder_x, decoder_state_placeholder, apply_decoder_output, apply_decoder_state, word, max_word_len)
             text += predicted
-        print text
+        #print text
+        from_json(to_json(sess))
         print
         sys.stdout.flush()
         epoch += 1
         saver.save(sess, "words/char")
-        exit(1)
 
 
 
