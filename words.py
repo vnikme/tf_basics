@@ -183,10 +183,10 @@ def to_json(sess):
     return json.dumps(m)
 
 
-def from_json(js):
+def from_json(js, sess):
     m = json.loads(js)
     for var in tf.global_variables():
-        var.assign(m[var.name])
+        sess.run(tf.assign(var, m[var.name]))
 
 
 def main():
@@ -232,10 +232,19 @@ def main():
     apply_decoder_output = tf.nn.softmax(apply_decoder_output)
 
     # prepare variables
-    init = tf.global_variables_initializer()
     sess = tf.Session()
-    sess.run(init)
 
+    if True:
+        from_json(open("dump.char", "rt").read(), sess)
+        text = ""
+        for word in sample_text(max_word_len):
+            predicted = make_sample(sess, encoder_x, encoder_output, apply_decoder_x, decoder_state_placeholder, apply_decoder_output, apply_decoder_state, word, max_word_len)
+            text += predicted
+        print text
+        exit(0)
+
+    init = tf.global_variables_initializer()
+    sess.run(init)
     data = read_words(max_word_len)
 
     epoch = 0
