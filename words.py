@@ -38,7 +38,7 @@ def iterate_chars(path, mask):
                     if ch in u"\u0014\u0015":
                         data.append(" ")
                         continue
-                    raise 1
+                    #raise 1
         except:
             #print "%s\t%.3f" % (files[i], i * 100.0 / n)
             data = []
@@ -103,12 +103,13 @@ class TWord:
 def read_words(max_word_len):
     data = {}
     for src_word in iterate_words(iterate_chars("lib_ru/public_html/book", "*.txt"), max_word_len):
+    #for src_word in iterate_words(iterate_chars("data", "all"), max_word_len):
         if src_word not in data:
             word, dword, target = make_targets(src_word, max_word_len)
             data[src_word] = TWord(word, dword, target)
         else:
             data[src_word].count += 1
-        #if len(data) >= 100000:
+        #if len(data) >= 1000:
         #    break
     return data
 
@@ -154,102 +155,120 @@ def choose_random(distr):
     return min(max(k, 0), len(distr) - 1)
 
 
-def make_sample(sess, encoder_x, encoder_output, decoder_x, decoder_state_x, decoder_op, decoder_state_op, seed, max_word_len, limit_word_len):
-    word, _, __ = make_targets(seed, max_word_len)
-    cur_state = sess.run(encoder_output, feed_dict = {encoder_x: [word]})[0]
-    cur_sym = GO
-    result = ""
-    while True:
-        probs, cur_state = sess.run([decoder_op, decoder_state_op], feed_dict = {decoder_x: [[cur_sym]], decoder_state_x: [cur_state]})
-        probs, cur_state = probs[0][0], cur_state[0]
-        cur_sym = choose_random(probs)
-        if cur_sym == STOP or len(result) >= limit_word_len:
-            break
-        if cur_sym == GO:
-            continue
-        result += ALL_SYMS[cur_sym]
-    return result.encode("utf-8")
+class TWordPackager:
+    def __init__(self, max_word_len, encoder_state_size, decoder_state_size, vocabulary_size):
+        # create encoder variables
+        with tf.variable_scope('encoder'):
+            self.encoder_input_placeholder = tf.placeholder(tf.int32, [None, max_word_len])
+            self.encoder_cell = tf.nn.rnn_cell.GRUCell(encoder_state_size)
+            self.encoder_w = tf.Variable(tf.random_normal([max_word_len * encoder_state_size, decoder_state_size]), name = "w")
+            self.encoder_b = tf.Variable(tf.random_normal([decoder_state_size]), name = "b")
+            output, state = tf.nn.dynamic_rnn(self.encoder_cell, tf.one_hot(self.encoder_input_placeholder, vocabulary_size, on_value = 1.0), dtype = tf.float32)
+            self.encoder_output = attention(output, max_word_len, encoder_state_size, decoder_state_size, self.encoder_w, self.encoder_b)
+        # create decoder variables
+        with tf.variable_scope('decoder'):
+            self.decoder_input_placeholder = tf.placeholder(tf.int32, [None, max_word_len + 1])
+            self.decoder_cell = tf.nn.rnn_cell.GRUCell(decoder_state_size)
+            self.decoder_w = tf.Variable(tf.random_normal([decoder_state_size, vocabulary_size]), name = "w")
+            self.decoder_b = tf.Variable(tf.random_normal([vocabulary_size]), name = "b")
+            output, state = tf.nn.dynamic_rnn(self.decoder_cell, tf.one_hot(self.decoder_input_placeholder, vocabulary_size, on_value = 1.0), initial_state = self.encoder_output, dtype = tf.float32)
+            self.decoder_output = projection(output, decoder_state_size, max_word_len + 1, vocabulary_size, self.decoder_w, self.decoder_b)
+        # create decoder variables for applying
+        with tf.variable_scope('decoder', reuse = True):
+            self.apply_decoder_input_placeholder = tf.placeholder(tf.int32, [None, 1])
+            self.decoder_state_input_placeholder = tf.placeholder(tf.float32, [None, decoder_state_size])
+            output, self.apply_decoder_state = tf.nn.dynamic_rnn(self.decoder_cell, tf.one_hot(self.apply_decoder_input_placeholder, vocabulary_size, on_value = 1.0), initial_state = self.decoder_state_input_placeholder, dtype = tf.float32)
+            output = projection(output, decoder_state_size, 1, vocabulary_size, self.decoder_w, self.decoder_b)
+            # renorm output logits for sampling
+            self.apply_decoder_output = tf.nn.softmax(output)
+
+    def to_json(self, sess):
+        m = {}
+        for var in tf.global_variables():
+            if not var.name.startswith("encoder/") and not var.name.startswith("decoder/"):
+                continue
+            m[var.name] = var.eval(sess).tolist()
+        return json.dumps(m)
+
+    def from_json(self, js, sess):
+        m = json.loads(js)
+        for var in tf.global_variables():
+            if not var.name.startswith("encoder/") and not var.name.startswith("decoder/"):
+                continue
+            sess.run(tf.assign(var, m[var.name]))
+
+    def encode_word(self, sess, word, max_word_len):
+        word, _, __ = make_targets(word, max_word_len)
+        return sess.run(self.encoder_output, feed_dict = {self.encoder_input_placeholder: [word]})[0]
+
+    def _decode_word(self, sess, word, max_word_len, limit_word_len, choose_func):
+        cur_state = word
+        cur_sym = GO
+        result = ""
+        while True:
+            probs, cur_state = sess.run([self.apply_decoder_output, self.apply_decoder_state], feed_dict = {self.apply_decoder_input_placeholder: [[cur_sym]], self.decoder_state_input_placeholder: [cur_state]})
+            probs, cur_state = probs[0][0], cur_state[0]
+            cur_sym = choose_func(probs)
+            if cur_sym == STOP or len(result) >= limit_word_len:
+                break
+            if cur_sym == GO:
+                continue
+            result += ALL_SYMS[cur_sym]
+        return result.encode("utf-8")
+
+    def decode_word_sample(self, sess, word, max_word_len, limit_word_len):
+        return self._decode_word(sess, word, max_word_len, limit_word_len, lambda probs: choose_random(probs))
+
+    def decode_word_max(self, sess, word, max_word_len, limit_word_len):
+        return self._decode_word(sess, word, max_word_len, limit_word_len, lambda probs: np.argmax(probs))
 
 
-def sample_text(max_word_len):
+def some_fixed_text(max_word_len):
     text = "При этом экс-губернатор крайне разозлился тем, что в Интернете активно распространяются фотографии, где он выглядит, как бомж, прибывший на знаковое политическое событие в Соединенные Штаты. Так, на одном из снимков видно, что Саакашвили в непрезентабельной одежде стоит в зале аэропорта Нью-Йорка. Создается впечатление, что утром он был сильно пьян и поэтому надел на себя первое, что попалось ему под руку. На другом снимке Саакашвили одиноко стоит в кустах с телефоном в руке в то время, когда основная публика находится на инаугурации Трампа."
     return iterate_words(text.decode("utf-8"), max_word_len)
 
 
-def to_json(sess):
-    m = {}
-    for var in tf.global_variables():
-        m[var.name] = var.eval(sess).tolist()
-    return json.dumps(m)
+def iterate_keyboard_input(max_word_len):
+    return iterate_words(raw_input().decode("utf-8"), max_word_len)
 
 
-def from_json(js, sess):
-    m = json.loads(js)
-    for var in tf.global_variables():
-        sess.run(tf.assign(var, m[var.name]))
+def sample_words(wp, sess, max_word_len, word_iterator):
+    original, predicted = "", ""
+    for word in word_iterator:
+        original += word.encode("utf-8")
+        word = wp.encode_word(sess, word, max_word_len)
+        predicted += wp.decode_word_max(sess, word, max_word_len, max_word_len * 3)
+    return original, predicted
 
 
 def main():
     # define params
-    max_word_len, batch_size, encoder_state_size, decoder_state_size, learning_rate = 25, 10000, 64, 256, 0.00001
+    max_word_len, batch_size, encoder_state_size, decoder_state_size, learning_rate = 25, 10000, 32, 128, 0.00001
 
-    # create variables and graph
-    encoder_x = tf.placeholder(tf.int32, [None, max_word_len])
-    encoder_cell = tf.nn.rnn_cell.GRUCell(encoder_state_size)
-    encoder_w = tf.Variable(tf.random_normal([max_word_len * encoder_state_size, decoder_state_size]))
-    encoder_b = tf.Variable(tf.random_normal([decoder_state_size]))
-
-    decoder_x = tf.placeholder(tf.int32, [None, max_word_len + 1])
-    apply_decoder_x = tf.placeholder(tf.int32, [None, 1])
-    decoder_cell = tf.nn.rnn_cell.GRUCell(decoder_state_size)
-    decoder_w = tf.Variable(tf.random_normal([decoder_state_size, VOCABULARY_SIZE]))
-    decoder_b = tf.Variable(tf.random_normal([VOCABULARY_SIZE]))
-
-    # create learning graph
-    decoder_state_placeholder = tf.placeholder(tf.float32, [None, decoder_state_size])
-    with tf.variable_scope('encoder'):
-        output, state = tf.nn.dynamic_rnn(encoder_cell, tf.one_hot(encoder_x, VOCABULARY_SIZE, on_value = 1.0), dtype = tf.float32)
-    encoder_output = attention(output, max_word_len, encoder_state_size, decoder_state_size, encoder_w, encoder_b)
-    with tf.variable_scope('decoder'):
-        output, state = tf.nn.dynamic_rnn(decoder_cell, tf.one_hot(decoder_x, VOCABULARY_SIZE, on_value = 1.0), initial_state = encoder_output, dtype = tf.float32)
-    decoder_output = projection(output, decoder_state_size, max_word_len + 1, VOCABULARY_SIZE, decoder_w, decoder_b)
-    with tf.variable_scope('decoder', reuse = True):
-        output, apply_decoder_state = tf.nn.dynamic_rnn(decoder_cell, tf.one_hot(apply_decoder_x, VOCABULARY_SIZE, on_value = 1.0), initial_state = decoder_state_placeholder, dtype = tf.float32)
-    apply_decoder_output = projection(output, decoder_state_size, 1, VOCABULARY_SIZE, decoder_w, decoder_b)
-    mults = tf.placeholder(tf.float32, [None])
-    y = tf.placeholder(tf.int32, [None, max_word_len + 1])
+    wp = TWordPackager(max_word_len, encoder_state_size, decoder_state_size, VOCABULARY_SIZE)
 
     # define loss and optimizer
+    mults = tf.placeholder(tf.float32, [None])
+    y = tf.placeholder(tf.int32, [None, max_word_len + 1])
     ohy = tf.one_hot(y, VOCABULARY_SIZE, on_value = 1.0)
-    loss = tf.nn.sigmoid_cross_entropy_with_logits(decoder_output, ohy)
+    loss = tf.nn.sigmoid_cross_entropy_with_logits(wp.decoder_output, ohy)
     loss = tf.reduce_mean(loss, 2)
     loss = tf.reduce_mean(loss, 1)
     loss = tf.mul(loss, mults)
     loss = tf.reduce_mean(loss)
     optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(loss)
 
-    # renorm output logits for sampling
-    apply_decoder_output = tf.nn.softmax(apply_decoder_output)
-
     # prepare variables
     sess = tf.Session()
 
-    if True:
-        from_json(open("dump.char", "rt").read(), sess)
-        text = ""
-        for word in sample_text(max_word_len):
-            predicted = make_sample(sess, encoder_x, encoder_output, apply_decoder_x, decoder_state_placeholder, apply_decoder_output, apply_decoder_state, word, max_word_len, max_word_len * 3)
-            text += predicted
-        print text
+    if False:
+        wp.from_json(open("dump.char", "rt").read(), sess)
+        print sample_words(wp, sess, max_word_len, some_fixed_text(max_word_len))[1]
         sys.stdout.flush()
     elif False:
-        from_json(open("dump.char", "rt").read(), sess)
+        wp.from_json(open("dump.char", "rt").read(), sess)
         while True:
-            text = ""
-            for word in iterate_words(raw_input().decode("utf-8"), max_word_len):
-                predicted = make_sample(sess, encoder_x, encoder_output, apply_decoder_x, decoder_state_placeholder, apply_decoder_output, apply_decoder_state, word, max_word_len, max_word_len * 3)
-                text += predicted
-            print text
+            print sample_words(wp, sess, max_word_len, iterate_keyboard_input(max_word_len))[1]
     else:
         init = tf.global_variables_initializer()
         sess.run(init)
@@ -260,13 +279,10 @@ def main():
         cnt, l = 1e-38, 0.0
         for batch_x, batch_dx, batch_y, batch_m in iterate_batches(data, batch_size):
             cnt += 1
-            _, _l = sess.run([optimizer, loss], feed_dict = {encoder_x: batch_x, decoder_x: batch_dx, y: batch_y, mults: batch_m})
+            _, _l = sess.run([optimizer, loss], feed_dict = {wp.encoder_input_placeholder: batch_x, wp.decoder_input_placeholder: batch_dx, y: batch_y, mults: batch_m})
             l += _l
         print "loss: %f\tepoch: %d" % (l / cnt, epoch)
-        original, predicted = "", ""
-        for word in sample_text(max_word_len):
-            original += word.encode("utf-8")
-            predicted += make_sample(sess, encoder_x, encoder_output, apply_decoder_x, decoder_state_placeholder, apply_decoder_output, apply_decoder_state, word, max_word_len, max_word_len * 3)
+        original, predicted = sample_words(wp, sess, max_word_len, some_fixed_text(max_word_len))
         print original
         print predicted
         print
@@ -275,9 +291,8 @@ def main():
             shutil.copy("dump.char", "dump.char.bak")
         except:
             pass
-        open("dump.char", "wt").write(to_json(sess))
+        open("dump.char", "wt").write(wp.to_json(sess))
         epoch += 1
-
 
 
 # entry point
