@@ -38,7 +38,7 @@ def iterate_chars(path, mask):
                     if ch in u"\u0014\u0015":
                         data.append(" ")
                         continue
-                    #raise 1
+                    raise 1
         except:
             #print "%s\t%.3f" % (files[i], i * 100.0 / n)
             data = []
@@ -85,8 +85,8 @@ class TWord:
 
 def read_words():
     data = {}
-    #for src_word in iterate_words(iterate_chars("lib_ru/public_html/book", "*.txt")):
-    for src_word in iterate_words(iterate_chars("data", "all")):
+    for src_word in iterate_words(iterate_chars("lib_ru/public_html/book", "*.txt")):
+    #for src_word in iterate_words(iterate_chars("data", "all")):
         if src_word not in data:
             word = word_to_codes(src_word)
             data[src_word] = TWord(word)
@@ -102,7 +102,7 @@ class TBatch:
         self.x, self.dx, self.y, self.m = [], [], [], []
 
 
-def iterate_batches(data, batch_size):
+def iterate_batches(data, batch_size, long_word_limit, long_batch_size):
     words = data.keys()
     lens = {}
     for txt in words:
@@ -120,7 +120,7 @@ def iterate_batches(data, batch_size):
     random.shuffle(word_lens)
     for word_len in word_lens:
         b = lens[word_len]
-        for i in xrange(0, len(b.x), batch_size):
+        for i in xrange(0, len(b.x), batch_size if word_len <= long_word_limit else long_batch_size):
             yield word_len, b.x[i : i + batch_size], b.dx[i : i + batch_size], b.y[i : i + batch_size], b.m[i : i + batch_size]
 
 
@@ -293,7 +293,7 @@ class TOptimizerSelector:
 
 def main():
     # define params
-    batch_size, long_word_limit, long_batch_size, state_size, learning_rate, limit_word_len = 1000, 20, 10, 256, 0.0001, 50
+    batch_size, long_word_limit, long_batch_size, state_size, learning_rate, limit_word_len = 10000, 20, 10, 256, 0.0001, 50
 
     wp = TWordPackager(state_size, VOCABULARY_SIZE)
     opt = TOptimizerSelector(wp, learning_rate)
@@ -305,7 +305,7 @@ def main():
     data = read_words()
 
     # retrive all optimizers
-    for word_len, batch_x, batch_dx, batch_y, batch_m in iterate_batches(data, len(data)):
+    for word_len, batch_x, batch_dx, batch_y, batch_m in iterate_batches(data, len(data), long_word_limit, len(data)):
         print word_len, len(batch_x)
         x, dx, y, mults, loss, optimizer = opt.choose(word_len)
 
@@ -325,9 +325,12 @@ def main():
             print sample_words(wp, sess, max_word_len, iterate_keyboard_input(max_word_len))[1]
 
     epoch = 0
+    all_batches = []
+    for word_len, batch_x, batch_dx, batch_y, batch_m in iterate_batches(data, batch_size, long_word_limit, long_batch_size):
+        all_batches.append([word_len, batch_x, batch_dx, batch_y, batch_m])
     while True:
         cnt, l = 1e-38, 0.0
-        for word_len, batch_x, batch_dx, batch_y, batch_m in iterate_batches(data, batch_size if word_len < long_word_limit else long_batch_size):
+        for word_len, batch_x, batch_dx, batch_y, batch_m in all_batches:
             cnt += 1
             x, dx, y, mults, loss, optimizer = opt.choose(word_len)
             _, _l = sess.run([optimizer, loss], feed_dict = {x: batch_x, dx: batch_dx, y: batch_y, mults: batch_m})
