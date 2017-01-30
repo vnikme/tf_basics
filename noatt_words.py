@@ -38,7 +38,7 @@ def iterate_chars(path, mask):
                     if ch in u"\u0014\u0015":
                         data.append(" ")
                         continue
-                    raise 1
+                    #raise 1
         except:
             #print "%s\t%.3f" % (files[i], i * 100.0 / n)
             data = []
@@ -85,15 +85,15 @@ class TWord:
 
 def read_words():
     data = {}
-    for src_word in iterate_words(iterate_chars("lib_ru/public_html/book", "*.txt")):
-    #for src_word in iterate_words(iterate_chars("data", "all")):
+    #for src_word in iterate_words(iterate_chars("lib_ru/public_html/book", "*.txt")):
+    for src_word in iterate_words(iterate_chars("data", "all")):
         if src_word not in data:
             word = word_to_codes(src_word)
             data[src_word] = TWord(word)
         else:
             data[src_word].count += 1
-        #if len(data) >= 1000:
-        #    break
+        if len(data) >= 1000:
+            break
     return data
 
 
@@ -284,16 +284,32 @@ class TOptimizerSelector:
             loss = tf.mul(loss, self.mults)
             loss = tf.reduce_mean(loss)
             self.target_losses[word_len] = loss
-            optimizer = tf.train.GradientDescentOptimizer(learning_rate = self.learning_rate).minimize(loss)
+            optimizer = tf.train.GradientDescentOptimizer(learning_rate = self.learning_rate)
+            #optimizer = tf.train.GradientDescentOptimizer(learning_rate = self.learning_rate).minimize(loss)
             #optimizer = tf.train.AdamOptimizer(learning_rate = self.learning_rate).minimize(loss, colocate_gradients_with_ops = True)
             #optimizer = tf.train.AdamOptimizer(learning_rate = self.learning_rate).minimize(loss)
             self.optimizers[word_len] = optimizer
         return encoder_input, decoder_input, self.target_placeholders[word_len], self.mults, self.target_losses[word_len], self.optimizers[word_len]
 
 
+def correct_learning_rate_multiplier(losses, learning_rate):
+    inc, dec = 0, 0
+    losses = losses[:10]
+    for i in xrange(1, len(losses)):
+        if losses[i - 1] < losses[i]:
+            inc += 1
+        else:
+            dec += 1
+    if inc == 0 and dec > 5:
+        learning_rate *= 1.05
+    elif inc > 5:
+        learning_rate *= 0.95
+    return learning_rate
+
+
 def main():
     # define params
-    batch_size, long_word_limit, long_batch_size, state_size, learning_rate, limit_word_len = 10000, 20, 10, 256, 0.0001, 50
+    batch_size, long_word_limit, long_batch_size, state_size, learning_rate, limit_word_len = 100, 20, 10, 256, 0.01, 50
 
     wp = TWordPackager(state_size, VOCABULARY_SIZE)
     opt = TOptimizerSelector(wp, learning_rate)
@@ -305,9 +321,9 @@ def main():
     data = read_words()
 
     # retrive all optimizers
-    for word_len, batch_x, batch_dx, batch_y, batch_m in iterate_batches(data, len(data), long_word_limit, len(data)):
-        print word_len, len(batch_x)
-        x, dx, y, mults, loss, optimizer = opt.choose(word_len)
+    #for word_len, batch_x, batch_dx, batch_y, batch_m in iterate_batches(data, len(data), long_word_limit, len(data)):
+    #    print word_len, len(batch_x)
+    #    x, dx, y, mults, loss, optimizer = opt.choose(word_len)
 
     # initialize global variables
     init = tf.global_variables_initializer()
@@ -324,24 +340,32 @@ def main():
         while True:
             print sample_words(wp, sess, max_word_len, iterate_keyboard_input(max_word_len))[1]
 
-    epoch = 0
+    epoch, learning_rate_multiplier = 0, 1.0
     all_batches = []
     for word_len, batch_x, batch_dx, batch_y, batch_m in iterate_batches(data, batch_size, long_word_limit, long_batch_size):
         all_batches.append([word_len, batch_x, batch_dx, batch_y, batch_m])
+    losses = []
     while True:
         cnt, l = 1e-38, 0.0
         for word_len, batch_x, batch_dx, batch_y, batch_m in all_batches:
             cnt += 1
             x, dx, y, mults, loss, optimizer = opt.choose(word_len)
-            _, _l = sess.run([optimizer, loss], feed_dict = {x: batch_x, dx: batch_dx, y: batch_y, mults: batch_m})
+            grad = []
+            for gv in optimizer.compute_gradients(loss):
+                if gv[0] is not None:
+                    grad.append((gv[0] * learning_rate_multiplier, gv[1]))
+            _, _l = sess.run([optimizer.apply_gradients(grad), loss], feed_dict = {x: batch_x, dx: batch_dx, y: batch_y, mults: batch_m})
             l += _l
+        losses.append(l / cnt)
         print "loss: %f\tepoch: %d" % (l / cnt, epoch)
-        if epoch % 30 == 0:
+        if epoch % 10 == 0:
             original, predicted_max, predicted_rand = sample_words(wp, sess, limit_word_len, some_fixed_text())
             print original
             print predicted_max
             print predicted_rand
             print
+            learning_rate_multiplier = correct_learning_rate_multiplier(losses, learning_rate_multiplier)
+            print "learning rate is %.6f" % (learning_rate * learning_rate_multiplier)
         sys.stdout.flush()
         #try:
         #    shutil.copy("dump.char", "dump.char.bak")
