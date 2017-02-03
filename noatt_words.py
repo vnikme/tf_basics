@@ -107,17 +107,23 @@ def read_words(word_len):
     return data
 
 
-def iterate_batches(data, batch_size):
+def iterate_batches(data, batch_size, words_to_take):
     words = data.keys()
-    random.shuffle(words)
-    x, dx, m = [], [], []
-    for txt in words:
+    distr = []
+    for w in words:
+        distr.append(math.sqrt(data[w].count))
+    cs = np.cumsum(distr)
+    s = np.sum(distr)
+    x, dx = [], []
+    for i in xrange(words_to_take):
+        k = int(np.searchsorted(cs, np.random.rand(1) * s))
+        k = min(max(k, 0), len(distr) - 1)
+        txt = words[k]
         word = data[txt]
         x.append(word.word)
         dx.append(word.dword)
-        m.append(math.log(word.count + 1.0))
     for i in xrange(0, len(x), batch_size):
-        yield x[i : i + batch_size], dx[i : i + batch_size], m[i : i + batch_size]
+        yield x[i : i + batch_size], dx[i : i + batch_size]
 
 
 # input shape: batch*time*input_state
@@ -251,7 +257,7 @@ def correct_learning_rate_multiplier(losses):
 
 def main():
     # define params
-    batch_size, max_word_len, embedding_size, state_size, limit_word_len, min_gap = 1000, 25, 8, 64, 50, 10.0
+    batch_size, words_in_batch, max_word_len, embedding_size, state_size, limit_word_len, min_gap = 2000, 1000000, 25, 8, 64, 50, 5.0
     learning_rate = tf.Variable(0.001, trainable = False)
 
     wp = TWordPackager(embedding_size, max_word_len, state_size, VOCABULARY_SIZE)
@@ -260,7 +266,6 @@ def main():
     sess = tf.Session()
 
     # create loss and optimizer
-    mults = tf.placeholder(tf.float32, [None])
     loss = None
     ohy = tf.one_hot(wp.encoder_input, wp.vocabulary_size)
     dv = tf.mul(wp.decoder_output, ohy)
@@ -273,9 +278,6 @@ def main():
         else:
             loss = loss + l
     loss = loss / wp.vocabulary_size
-    #loss = tf.reduce_mean(loss, 2)
-    loss = tf.reduce_mean(loss, 1)
-    loss = tf.mul(loss, mults)
     loss = tf.reduce_mean(loss)
     optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(loss)
     #optimizer = tf.train.GradientDescentOptimizer(learning_rate = learning_rate).minimize(loss)
@@ -304,17 +306,19 @@ def main():
 
     # read all data
     data = read_words(max_word_len)
+    print "Total number of words:", len(data)
 
     epoch = 0
-    all_batches = []
-    for batch_x, batch_dx, batch_m in iterate_batches(data, batch_size):
-        all_batches.append([batch_x, batch_dx, batch_m])
     losses = []
     while True:
+        if epoch % 10 == 0:
+            all_batches = []
+            for batch_x, batch_dx in iterate_batches(data, batch_size, words_in_batch):
+                all_batches.append([batch_x, batch_dx])
         cnt, l = 1e-38, 0.0
-        for batch_x, batch_dx, batch_m in all_batches:
+        for batch_x, batch_dx in all_batches:
             cnt += 1
-            _, _l = sess.run([optimizer, loss], feed_dict = {wp.encoder_input: batch_x, wp.decoder_input: batch_dx, mults: batch_m})
+            _, _l = sess.run([optimizer, loss], feed_dict = {wp.encoder_input: batch_x, wp.decoder_input: batch_dx})
             l += _l
         losses.append(l / cnt)
         #learning_rate *= correct_learning_rate_multiplier(losses)
