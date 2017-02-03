@@ -286,7 +286,6 @@ def main():
     init = tf.global_variables_initializer()
     sess.run(init)
 
-    #wp.from_json(open("dump.char.25_5_64", "rt").read(), sess)
     #wp.from_json(open("dump.char", "rt").read(), sess)
 
     print "Models created"
@@ -300,7 +299,7 @@ def main():
         print
         sys.stdout.flush()
     elif False:
-        wp.from_json(open("dump.char", "rt").read(), sess)
+        wp.from_json(open("dump.char.25_8_64_5", "rt").read(), sess)
         while True:
             print sample_words(wp, sess, limit_word_len, iterate_keyboard_input(max_word_len))[1]
 
