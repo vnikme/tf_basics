@@ -24,14 +24,14 @@ def iterate_files_in_dir(path, mask):
             yield os.path.join(root, filename)
 
 
-def iterate_chars(path, mask):
+def iterate_chars(path, mask, enc):
     files = list(iterate_files_in_dir(path, mask))
     n = len(files)
     for i in xrange(n):
         data = []
         try:
             #print "%s\t%.3f" % (files[i], i * 100.0 / n)
-            for ch in open(files[i], "rt").read().decode("koi8-r"):
+            for ch in open(files[i], "rt").read().decode(enc):
                 if ch in ALL_SYMS:
                     data.append(ch)
                 else:
@@ -95,8 +95,8 @@ class TWord:
 
 def read_words(word_len):
     data = {}
-    for src_word in iterate_words(iterate_chars("lib_ru/public_html/book", "*.txt"), word_len - 1):
-    #for src_word in iterate_words(iterate_chars("data", "all"), word_len - 1):
+    for src_word in iterate_words(iterate_chars("lib_ru/public_html/book", "*.txt", "koi8-r"), word_len - 1):
+    #for src_word in iterate_words(iterate_chars("data", "all", "utf-8"), word_len - 1):
         if src_word not in data:
             word = word_to_codes(src_word, word_len - 1)
             data[src_word] = TWord(word)
@@ -139,7 +139,7 @@ def projection(inp, state_size, max_time, vocabulary_size, w, b):
     return output
 
 def choose_random(distr):
-    #print " ".join(map(lambda t: "%.2f" % t, distr))
+    #print "\t\t".join(map(lambda i: "%s: %.7f" % (ALL_SYMS[i].encode("utf-8") if i < len(ALL_SYMS) else "<spec>", distr[i]), range(len(distr))))
     cs = np.cumsum(distr)
     s = np.sum(distr)
     k = int(np.searchsorted(cs, np.random.rand(1) * s))
@@ -192,6 +192,9 @@ class TWordPackager:
         for var in tf.global_variables():
             if not var.name.startswith("encoder/") and not var.name.startswith("decoder/"):
                 continue
+            if var.name not in m:
+                print var.name
+                continue
             ops.append(tf.assign(var, m[var.name]))
         sess.run(ops)
 
@@ -242,13 +245,13 @@ def sample_words(wp, sess, limit_word_len, word_iterator):
 
 def correct_learning_rate_multiplier(losses):
     if len(losses) >= 2 and losses[-2] * 2 < losses[-1]:
-        return 0.7
+        return 1.0
     return 1.0
 
 
 def main():
     # define params
-    batch_size, max_word_len, embedding_size, state_size, limit_word_len = 10000, 25, 5, 64, 50
+    batch_size, max_word_len, embedding_size, state_size, limit_word_len, min_gap = 1000, 25, 8, 64, 50, 10.0
     learning_rate = tf.Variable(0.001, trainable = False)
 
     wp = TWordPackager(embedding_size, max_word_len, state_size, VOCABULARY_SIZE)
@@ -256,25 +259,37 @@ def main():
     # prepare variables
     sess = tf.Session()
 
-    # read all data
-    data = read_words(max_word_len)
-
     # create loss and optimizer
     mults = tf.placeholder(tf.float32, [None])
-    ohy = tf.one_hot(wp.encoder_input, wp.vocabulary_size, on_value = 1.0)
-    loss = tf.nn.sigmoid_cross_entropy_with_logits(wp.decoder_output, ohy)
-    loss = tf.reduce_mean(loss, 2)
+    loss = None
+    ohy = tf.one_hot(wp.encoder_input, wp.vocabulary_size)
+    dv = tf.mul(wp.decoder_output, ohy)
+    dv = tf.reduce_sum(dv, 2)
+    for i in xrange(wp.vocabulary_size):
+        dvi = wp.decoder_output[:, :, i]
+        l = tf.maximum(dvi - dv + min_gap, 0.0)
+        if loss == None:
+            loss = l
+        else:
+            loss = loss + l
+    loss = loss / wp.vocabulary_size
+    #loss = tf.reduce_mean(loss, 2)
     loss = tf.reduce_mean(loss, 1)
     loss = tf.mul(loss, mults)
     loss = tf.reduce_mean(loss)
-    #optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(loss)
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate = learning_rate).minimize(loss)
+    optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(loss)
+    #optimizer = tf.train.GradientDescentOptimizer(learning_rate = learning_rate).minimize(loss)
 
     # initialize global variables
     init = tf.global_variables_initializer()
     sess.run(init)
 
-    if True:
+    #wp.from_json(open("dump.char.25_5_64", "rt").read(), sess)
+    #wp.from_json(open("dump.char", "rt").read(), sess)
+
+    print "Models created"
+
+    if False:
         wp.from_json(open("dump.char", "rt").read(), sess)
         original, predicted_max, predicted_rand = sample_words(wp, sess, limit_word_len, some_fixed_text(max_word_len))
         print original
@@ -285,7 +300,10 @@ def main():
     elif False:
         wp.from_json(open("dump.char", "rt").read(), sess)
         while True:
-            print sample_words(wp, sess, max_word_len, iterate_keyboard_input(max_word_len))[1]
+            print sample_words(wp, sess, limit_word_len, iterate_keyboard_input(max_word_len))[1]
+
+    # read all data
+    data = read_words(max_word_len)
 
     epoch = 0
     all_batches = []
@@ -299,13 +317,13 @@ def main():
             _, _l = sess.run([optimizer, loss], feed_dict = {wp.encoder_input: batch_x, wp.decoder_input: batch_dx, mults: batch_m})
             l += _l
         losses.append(l / cnt)
-        learning_rate *= correct_learning_rate_multiplier(losses)
+        #learning_rate *= correct_learning_rate_multiplier(losses)
         print "loss: %f\tlearning rate: %.6f\tepoch: %d" % (l / cnt, sess.run(learning_rate), epoch)
         if epoch % 10 == 0:
             original, predicted_max, predicted_rand = sample_words(wp, sess, limit_word_len, some_fixed_text(max_word_len))
-            print original
+            #print original
             print predicted_max
-            print predicted_rand
+            #print predicted_rand
             print
             try:
                 shutil.copy("dump.char", "dump.char.bak")
