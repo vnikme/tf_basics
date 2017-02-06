@@ -257,7 +257,7 @@ def correct_learning_rate_multiplier(losses):
 
 def main():
     # define params
-    batch_size, words_in_batch, max_word_len, embedding_size, state_size, limit_word_len, min_gap = 2000, 1000000, 25, 8, 64, 50, 5.0
+    batch_size, words_in_batch, max_word_len, embedding_size, state_size, limit_word_len, margin = 2000, 1000000, 25, 8, 64, 50, 5.0
     learning_rate = tf.Variable(0.0012017, trainable = False)
 
     wp = TWordPackager(embedding_size, max_word_len, state_size, VOCABULARY_SIZE)
@@ -266,19 +266,43 @@ def main():
     sess = tf.Session()
 
     # create loss and optimizer
-    loss = None
+    #loss = None
+    #ohy = tf.one_hot(wp.encoder_input, wp.vocabulary_size)
+    #dv = tf.mul(wp.decoder_output, ohy)
+    #dv = tf.reduce_sum(dv, 2)
+    #for i in xrange(wp.vocabulary_size):
+    #    dvi = wp.decoder_output[:, :, i]
+    #    l = tf.maximum(dvi - dv + margin, 0.0)
+    #    if loss == None:
+    #        loss = l
+    #    else:
+    #        loss = loss + l
+    #loss = loss / wp.vocabulary_size
+    #loss = tf.reduce_mean(loss)
+
+    #ohy = tf.one_hot(wp.encoder_input, wp.vocabulary_size)
+    #loss = tf.nn.sigmoid_cross_entropy_with_logits(wp.decoder_output, ohy)
+    #loss = tf.reduce_mean(loss)
+
+    #loss = None
+    #ohy = tf.one_hot(wp.encoder_input, wp.vocabulary_size)
+    #dv = tf.mul(wp.decoder_output, ohy)
+    #dv = tf.reduce_sum(dv, 2)
+    #for i in xrange(wp.vocabulary_size):
+    #    dvi = wp.decoder_output[:, :, i]
+    #    l = tf.nn.softplus(dvi - dv + margin)
+    #    if loss == None:
+    #        loss = l
+    #    else:
+    #        loss = loss + l
+    #loss = loss / wp.vocabulary_size
+    #loss = tf.reduce_mean(loss)
+
     ohy = tf.one_hot(wp.encoder_input, wp.vocabulary_size)
-    dv = tf.mul(wp.decoder_output, ohy)
-    dv = tf.reduce_sum(dv, 2)
-    for i in xrange(wp.vocabulary_size):
-        dvi = wp.decoder_output[:, :, i]
-        l = tf.maximum(dvi - dv + min_gap, 0.0)
-        if loss == None:
-            loss = l
-        else:
-            loss = loss + l
-    loss = loss / wp.vocabulary_size
+    loss = -tf.nn.softmax(wp.decoder_output)
+    loss = tf.mul(loss, ohy)
     loss = tf.reduce_mean(loss)
+
     optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(loss)
     #optimizer = tf.train.GradientDescentOptimizer(learning_rate = learning_rate).minimize(loss)
 
