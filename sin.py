@@ -23,17 +23,23 @@ def generate_features(x):
 
         
 def generate_pool(count, step):
-    x, y = [], []
+    learn_x, learn_y = [], []
+    test_x, test_y = [], []
     for i in xrange(count):
+        is_test = True if random.random() < 0.1 else False
         t = i * step
-        x.append(generate_features(t))
-        y.append(math.sin(t))
-    return x, y
+        if is_test:
+            test_x.append(generate_features(t))
+            test_y.append(math.sin(t))
+        else:
+            learn_x.append(generate_features(t))
+            learn_y.append(math.sin(t))
+    return learn_x, learn_y, test_x, test_y
 
 
 def main():
     # generate data
-    learn_x, learn_y = generate_pool(100000, 0.00001 * math.pi * 2)
+    learn_x, learn_y, test_x, test_y = generate_pool(100000, 0.00001 * math.pi * 2)
     
     # create variables and placeholders
     a = tf.Variable(tf.random_normal([FEATURES_COUNT], -0.01, 0.01))
@@ -48,7 +54,7 @@ def main():
     loss = tf.reduce_mean(loss, 0) # [None] -> []
     
     # create optimizer
-    optimizer = tf.train.AdamOptimizer(learning_rate = 0.01).minimize(loss)
+    optimizer = tf.train.AdamOptimizer(learning_rate = 0.012017).minimize(loss)
 
     # run
     sess = tf.Session()
@@ -61,10 +67,12 @@ def main():
         print "Epoch: %d, loss: %f" % (epoch, cost)
         if epoch % 100 == 0:
             print sess.run(a)
+            print "Error on test:", sess.run(loss, feed_dict = {x: test_x, y: test_y})
         epoch += 1
         if cost < 0.001:
             break
     print sess.run(a)
+    print "Error on test:", sess.run(loss, feed_dict = {x: test_x, y: test_y})
 
 
 if __name__ == "__main__":
