@@ -2,7 +2,7 @@
 
 import tensorflow as tf
 import numpy as np
-import random
+import random, sys
 
 
 def eratosphen(n):
@@ -17,17 +17,18 @@ def eratosphen(n):
 
 
 def generate_data(bits):
-    x, y = np.ndarray([2 ** bits - 2, bits, 1], np.float32), np.ndarray([2 ** bits - 2, 1], np.float32)
+    x, y = [], []
     _, mask = eratosphen(2 ** bits)
-    print mask
-    exit(1)
     for k in xrange(2, 2 ** bits):
+        if k % 2 == 0:
+            continue
         n = k
+        x.append([])
         for i in xrange(bits):
-            x[k - 2][i][0] = n % 2
+            x[-1].append([n % 2])
             n /= 2
-        y[k - 2][0] = 1.0 if mask[k - 2] else 0.0
-    return x, y
+        y.append([1.0 if mask[k] else 0.0])
+    return np.asarray(x), np.asarray(y)
 
 
 def split_learn_test(x, y):
@@ -42,20 +43,54 @@ def split_learn_test(x, y):
     return np.asarray(learn_x), np.asarray(learn_y), np.asarray(test_x), np.asarray(test_y)
 
 
+def calc_precicion_with_threshold(op, sess, x, test_x, test_y, threshold):
+    correct, total = 0.0, 0.0
+    res = sess.run(op, feed_dict = {x: test_x})
+    for i in xrange(len(test_x)):
+        #print res[i], test_y[i]
+        if res[i] < threshold and test_y[i] == 0:
+            correct += 1
+        elif res[i] > threshold and test_y[i] == 1:
+            correct += 1
+        total += 1
+    return correct / total
+
+
+def calc_precicion(op, sess, x, test_x, test_y):
+    a, b = -10.0, 10.0
+    n = 10
+    res = -1.0
+    while b - a > 1e-3:
+        best_t, best_val = -100, -1.0
+        for i in xrange(n + 1):
+            t = a + (b - a) * i / n
+            val = calc_precicion_with_threshold(op, sess, x, test_x, test_y, t)
+            if val > best_val:
+                best_t = t
+                best_val = val
+        margin = (b - a) / n
+        a = best_t - margin
+        b = best_t + margin
+        if res < best_val:
+            res = best_val
+    return res
+
+
 # do all stuff
 def main():
     # define params
-    max_time, state_size, eps = 8, 16, 0.001
+    max_time, state_size, eps, minibatch, print_freq = 22, 15, 0.001, 10000, 1
     learning_rate = tf.Variable(0.001, trainable = False)
     gru = tf.nn.rnn_cell.GRUCell(state_size)
-    w = tf.Variable(tf.random_normal([state_size, 1], -0.01, 0.01))
+    w = tf.Variable(tf.random_normal([max_time * state_size, 1], -0.01, 0.01))
     b = tf.Variable(tf.random_normal([1], -0.01, 0.01))
     # create learning graph
     x = tf.placeholder(tf.float32, [None, max_time, 1])
     with tf.variable_scope('train'):
         output, state = tf.nn.dynamic_rnn(gru, x, dtype = tf.float32)
     y = tf.placeholder(tf.float32, [None, 1])
-    output = output[:, max_time - 1, :]
+    output = tf.reshape(output, [-1, max_time * state_size])
+    #output = output[:, max_time - 1, :]
     #output = tf.sigmoid(tf.add(tf.matmul(output, w), b))
     output = tf.add(tf.matmul(output, w), b)
     # define loss and optimizer
@@ -71,16 +106,28 @@ def main():
     data_x, data_y = generate_data(max_time)
     data_x, data_y, test_x, test_y = split_learn_test(data_x, data_y)
     prev_loss = None
+    print "Learn baseline: %.4f" % (calc_precicion_with_threshold(output, sess, x, data_x, data_y, 10.0))
+    print "Test baseline: %.4f" % (calc_precicion_with_threshold(output, sess, x, test_x, test_y, 10.0))
+    print
+    sys.stdout.flush()
     while True:
-        res, l = sess.run([optimizer, loss], feed_dict = {x: data_x, y: data_y})
-        print l
+        l, c = 0.0, 0
+        for i in xrange(0, len(data_x), minibatch):
+            res, _l = sess.run([optimizer, loss], feed_dict = {x: data_x[i : i + minibatch], y: data_y[i : i + minibatch]})
+            l += _l
+            c += 1
+        l /= c
+        #print "%.6f" % l
         if False and prev_loss is not None and l > prev_loss:
             learning_rate *= 0.5
             print "Learning rate changed: %.4f %.4f %.6f" % (prev_loss, l, sess.run(learning_rate))
         prev_loss = l
         cnt += 1
-        if cnt % 10 == 0:
-            print "Test loss: %f" % sess.run(loss, feed_dict = {x: test_x, y: test_y})
+        if cnt % print_freq == 0:
+            print "Learn loss: %.4f, learn precision: %.4f" % (sess.run(loss, feed_dict = {x: data_x, y: data_y}), calc_precicion(output, sess, x, data_x, data_y))
+            print "Test loss: %.4f, test precision: %.4f" % (sess.run(loss, feed_dict = {x: test_x, y: test_y}), calc_precicion(output, sess, x, test_x, test_y))
+            print
+            sys.stdout.flush()
         if l <= eps:
             break
 
