@@ -43,8 +43,13 @@ def split_learn_test(x, y):
     return np.asarray(learn_x), np.asarray(learn_y), np.asarray(test_x), np.asarray(test_y)
 
 
-def calc_precicion_with_threshold(op, sess, x, test_x, test_y, threshold):
+def calc_precicion_with_threshold(op, sess, x, test_x, test_y, minibatch, threshold):
     correct, total = 0.0, 0.0
+    idx = range(len(test_x))
+    random.shuffle(idx)
+    idx = idx[:minibatch]
+    test_x = [test_x[i] for i in idx]
+    test_y = [test_y[i] for i in idx]
     res = sess.run(op, feed_dict = {x: test_x})
     for i in xrange(len(test_x)):
         #print res[i], test_y[i]
@@ -56,7 +61,7 @@ def calc_precicion_with_threshold(op, sess, x, test_x, test_y, threshold):
     return correct / total
 
 
-def calc_precicion(op, sess, x, test_x, test_y):
+def calc_precicion(op, sess, x, test_x, test_y, minibatch):
     a, b = -10.0, 10.0
     n = 10
     res = -1.0
@@ -64,7 +69,7 @@ def calc_precicion(op, sess, x, test_x, test_y):
         best_t, best_val = -100, -1.0
         for i in xrange(n + 1):
             t = a + (b - a) * i / n
-            val = calc_precicion_with_threshold(op, sess, x, test_x, test_y, t)
+            val = calc_precicion_with_threshold(op, sess, x, test_x, test_y, minibatch, t)
             if val > best_val:
                 best_t = t
                 best_val = val
@@ -79,20 +84,27 @@ def calc_precicion(op, sess, x, test_x, test_y):
 # do all stuff
 def main():
     # define params
-    max_time, state_size, eps, minibatch, print_freq = 22, 15, 0.001, 10000, 1
+    max_time, state_size, hidden_size1, hidden_size2, eps, minibatch, print_freq = 22, 500, 300, 300, 0.001, 1000, 1
     learning_rate = tf.Variable(0.001, trainable = False)
     gru = tf.nn.rnn_cell.GRUCell(state_size)
-    w = tf.Variable(tf.random_normal([max_time * state_size, 1], -0.01, 0.01))
-    b = tf.Variable(tf.random_normal([1], -0.01, 0.01))
+    #w1 = tf.Variable(tf.random_normal([max_time * state_size, hidden_size], -0.01, 0.01))
+    w1 = tf.Variable(tf.random_normal([state_size, hidden_size1], -0.01, 0.01))
+    b1 = tf.Variable(tf.random_normal([hidden_size1], -0.01, 0.01))
+    w2 = tf.Variable(tf.random_normal([hidden_size1, hidden_size2], -0.01, 0.01))
+    b2 = tf.Variable(tf.random_normal([hidden_size2], -0.01, 0.01))
+    w3 = tf.Variable(tf.random_normal([hidden_size2, 1], -0.01, 0.01))
+    b3 = tf.Variable(tf.random_normal([1], -0.01, 0.01))
     # create learning graph
     x = tf.placeholder(tf.float32, [None, max_time, 1])
     with tf.variable_scope('train'):
         output, state = tf.nn.dynamic_rnn(gru, x, dtype = tf.float32)
     y = tf.placeholder(tf.float32, [None, 1])
-    output = tf.reshape(output, [-1, max_time * state_size])
-    #output = output[:, max_time - 1, :]
+    #output = tf.reshape(output, [-1, max_time * state_size])
+    output = output[:, max_time - 1, :]
     #output = tf.sigmoid(tf.add(tf.matmul(output, w), b))
-    output = tf.add(tf.matmul(output, w), b)
+    output = tf.sigmoid(tf.add(tf.matmul(output, w1), b1))
+    output = tf.sigmoid(tf.add(tf.matmul(output, w2), b2))
+    output = tf.add(tf.matmul(output, w3), b3)
     # define loss and optimizer
     #loss = tf.nn.l2_loss(tf.subtract(output, y)) / ((2 ** max_time) * max_time)
     loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(output, y))
@@ -106,8 +118,8 @@ def main():
     data_x, data_y = generate_data(max_time)
     data_x, data_y, test_x, test_y = split_learn_test(data_x, data_y)
     prev_loss = None
-    print "Learn baseline: %.4f" % (calc_precicion_with_threshold(output, sess, x, data_x, data_y, 10.0))
-    print "Test baseline: %.4f" % (calc_precicion_with_threshold(output, sess, x, test_x, test_y, 10.0))
+    print "Learn baseline: %.4f" % (calc_precicion_with_threshold(output, sess, x, data_x, data_y, minibatch, 10.0))
+    print "Test baseline: %.4f" % (calc_precicion_with_threshold(output, sess, x, test_x, test_y, minibatch, 10.0))
     print
     sys.stdout.flush()
     while True:
@@ -124,8 +136,13 @@ def main():
         prev_loss = l
         cnt += 1
         if cnt % print_freq == 0:
-            print "Learn loss: %.4f, learn precision: %.4f" % (sess.run(loss, feed_dict = {x: data_x, y: data_y}), calc_precicion(output, sess, x, data_x, data_y))
-            print "Test loss: %.4f, test precision: %.4f" % (sess.run(loss, feed_dict = {x: test_x, y: test_y}), calc_precicion(output, sess, x, test_x, test_y))
+            print "Learn loss: %.4f, learn precision: %.4f" % (l, calc_precicion(output, sess, x, data_x, data_y, minibatch))
+            tl, tc = 0.0, 0
+            for i in xrange(0, len(test_x), minibatch):
+                _l = sess.run(loss, feed_dict = {x: test_x[i : i + minibatch], y: test_y[i : i + minibatch]})
+                tl += _l
+                tc += 1
+            print "Test loss: %.4f, test precision: %.4f" % (tl / tc, calc_precicion(output, sess, x, test_x, test_y, minibatch))
             print
             sys.stdout.flush()
         if l <= eps:
