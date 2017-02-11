@@ -88,8 +88,9 @@ def calc_precicion(op, sess, x, test_x, test_y, minibatch):
 # do all stuff
 def main():
     # define params
-    max_time, state_size, hidden_size, eps, minibatch, print_freq = 20, 50, 300, 0.001, 50, 1
-    learning_rate = tf.Variable(0.0001, trainable = False)
+    max_time, state_size, hidden_size, eps, minibatch, print_freq = 14, 50, 300, 0.001, 1000, 10
+    #learning_rate = tf.Variable(0.0001, trainable = False)
+    learning_rate = 0.001
     gru = tf.nn.rnn_cell.GRUCell(state_size)
     #w0 = tf.Variable(tf.random_normal([max_time, max_time * state_size], 0.0, 0.1))
     #b0 = tf.Variable(tf.random_normal([max_time * state_size], 0.0, 0.1))
@@ -115,11 +116,11 @@ def main():
     loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(output, y))
     optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(loss)
     #optimizer = tf.train.GradientDescentOptimizer(learning_rate = learning_rate).minimize(loss)
+    #optimizer = tf.contrib.layers.optimize_loss(loss, global_step = None, learning_rate = learning_rate, optimizer = "Adam", gradient_noise_scale = 0.1)
     # begin training
     init = tf.global_variables_initializer()
     sess = tf.Session()
     sess.run(init)
-    cnt = 0
     data_x, data_y = generate_data(max_time)
     data_x, data_y, test_x, test_y = split_learn_test(data_x, data_y)
     prev_loss = None
@@ -127,20 +128,22 @@ def main():
     print "Test baseline: %.4f" % (calc_precicion_with_threshold(output, sess, x, test_x, test_y, minibatch, 10.0))
     print
     sys.stdout.flush()
+    epoch = 0
     while True:
         l, c = 0.0, 0
         for i in xrange(0, len(data_x), minibatch):
             res, _l = sess.run([optimizer, loss], feed_dict = {x: data_x[i : i + minibatch], y: data_y[i : i + minibatch]})
             l += _l
             c += 1
+            #print _l
         l /= c
         #print "%.6f" % l
         if False and prev_loss is not None and l > prev_loss:
             learning_rate *= 0.5
             print "Learning rate changed: %.4f %.4f %.6f" % (prev_loss, l, sess.run(learning_rate))
         prev_loss = l
-        cnt += 1
-        if cnt % print_freq == 0:
+        epoch += 1
+        if epoch % print_freq == 0:
             print "Learn loss: %.4f, learn precision: %.4f" % (l, calc_precicion(output, sess, x, data_x, data_y, minibatch))
             tl, tc = 0.0, 1e-38
             for i in xrange(0, len(test_x), minibatch):
