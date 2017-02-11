@@ -35,7 +35,7 @@ def split_learn_test(x, y):
     n = len(x)
     idx = range(n)
     random.shuffle(idx)
-    k = int(n * 0.9)
+    k = n #int(n * 0.9)
     learn_x = [x[i] for i in idx[:k]]
     learn_y = [y[i] for i in idx[:k]]
     test_x = [x[i] for i in idx[k:]]
@@ -44,7 +44,9 @@ def split_learn_test(x, y):
 
 
 def calc_precicion_with_threshold(op, sess, x, test_x, test_y, minibatch, threshold):
-    correct, total = 0.0, 0.0
+    if len(test_x) == 0:
+        return 0.0
+    correct, total = 0.0, 1e-38
     idx = range(len(test_x))
     random.shuffle(idx)
     idx = idx[:minibatch]
@@ -62,6 +64,8 @@ def calc_precicion_with_threshold(op, sess, x, test_x, test_y, minibatch, thresh
 
 
 def calc_precicion(op, sess, x, test_x, test_y, minibatch):
+    if len(test_x) == 0:
+        return 0.0
     a, b = -10.0, 10.0
     n = 10
     res = -1.0
@@ -84,27 +88,28 @@ def calc_precicion(op, sess, x, test_x, test_y, minibatch):
 # do all stuff
 def main():
     # define params
-    max_time, state_size, hidden_size1, hidden_size2, eps, minibatch, print_freq = 22, 500, 300, 300, 0.001, 1000, 1
-    learning_rate = tf.Variable(0.001, trainable = False)
+    max_time, state_size, hidden_size, eps, minibatch, print_freq = 20, 50, 300, 0.001, 50, 1
+    learning_rate = tf.Variable(0.0001, trainable = False)
     gru = tf.nn.rnn_cell.GRUCell(state_size)
-    #w1 = tf.Variable(tf.random_normal([max_time * state_size, hidden_size], -0.01, 0.01))
-    w1 = tf.Variable(tf.random_normal([state_size, hidden_size1], -0.01, 0.01))
-    b1 = tf.Variable(tf.random_normal([hidden_size1], -0.01, 0.01))
-    w2 = tf.Variable(tf.random_normal([hidden_size1, hidden_size2], -0.01, 0.01))
-    b2 = tf.Variable(tf.random_normal([hidden_size2], -0.01, 0.01))
-    w3 = tf.Variable(tf.random_normal([hidden_size2, 1], -0.01, 0.01))
-    b3 = tf.Variable(tf.random_normal([1], -0.01, 0.01))
+    #w0 = tf.Variable(tf.random_normal([max_time, max_time * state_size], 0.0, 0.1))
+    #b0 = tf.Variable(tf.random_normal([max_time * state_size], 0.0, 0.1))
+    w1 = tf.Variable(tf.random_uniform([max_time * state_size, hidden_size], -0.01, 0.1))
+    #w1 = tf.Variable(tf.random_normal([state_size, hidden_size1], -0.01, 0.01))
+    b1 = tf.Variable(tf.random_uniform([hidden_size], -0.1, 0.1))
+    w2 = tf.Variable(tf.random_uniform([hidden_size, 1], -0.1, 0.1))
+    b2 = tf.Variable(tf.random_uniform([1], -0.1, 0.1))
     # create learning graph
     x = tf.placeholder(tf.float32, [None, max_time, 1])
     with tf.variable_scope('train'):
         output, state = tf.nn.dynamic_rnn(gru, x, dtype = tf.float32)
+    #output = tf.reshape(x, [-1, max_time])
+    #output = tf.sigmoid(tf.add(tf.matmul(output, w0), b0))
     y = tf.placeholder(tf.float32, [None, 1])
-    #output = tf.reshape(output, [-1, max_time * state_size])
-    output = output[:, max_time - 1, :]
-    #output = tf.sigmoid(tf.add(tf.matmul(output, w), b))
+    #output = tf.sigmoid(output);
+    output = tf.reshape(output, [-1, max_time * state_size])
+    #output = output[:, max_time - 1, :]
     output = tf.sigmoid(tf.add(tf.matmul(output, w1), b1))
-    output = tf.sigmoid(tf.add(tf.matmul(output, w2), b2))
-    output = tf.add(tf.matmul(output, w3), b3)
+    output = tf.add(tf.matmul(output, w2), b2)
     # define loss and optimizer
     #loss = tf.nn.l2_loss(tf.subtract(output, y)) / ((2 ** max_time) * max_time)
     loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(output, y))
@@ -137,7 +142,7 @@ def main():
         cnt += 1
         if cnt % print_freq == 0:
             print "Learn loss: %.4f, learn precision: %.4f" % (l, calc_precicion(output, sess, x, data_x, data_y, minibatch))
-            tl, tc = 0.0, 0
+            tl, tc = 0.0, 1e-38
             for i in xrange(0, len(test_x), minibatch):
                 _l = sess.run(loss, feed_dict = {x: test_x[i : i + minibatch], y: test_y[i : i + minibatch]})
                 tl += _l
