@@ -92,9 +92,9 @@ def calc_precicion(op, sess, x, test_x, test_y, minibatch, subsample):
 # do all stuff
 def main():
     # define params
-    max_time, state_size, hidden_size, eps, minibatch, subsample, print_freq = 20, 25, 300, 0.01, 32, 1024, 1
+    max_time, state_size, hidden_size, eps, minibatch, subsample, print_freq = 20, 50, 300, 0.01, 50, 1000, 1
     #learning_rate = tf.Variable(0.0001, trainable = False)
-    learning_rate, noise = 0.001, 0.1
+    learning_rate, noise = 0.0001, 0.1
     gru = tf.nn.rnn_cell.GRUCell(state_size)
     #w0 = tf.Variable(tf.random_normal([max_time, max_time * state_size], 0.0, 0.1))
     #b0 = tf.Variable(tf.random_normal([max_time * state_size], 0.0, 0.1))
