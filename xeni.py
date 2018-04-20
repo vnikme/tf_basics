@@ -32,18 +32,18 @@ def read_data(path, max_length):
     return np.array(data), chars, codes
 
 
-def feed_zero_generator_state(generator_c_states, generator_h_states, batch_size, hidden_size):
+def feed_random_generator_state(generator_c_states, generator_h_states, batch_size, hidden_size):
     result = {}
     for c in generator_c_states:
-        result[c] = np.zeros((batch_size, hidden_size))
+        result[c] = np.random.uniform(size = (1, hidden_size), low = -1.0, high = 1.0)
     for h in generator_h_states:
         result[h] = np.zeros((batch_size, hidden_size))
     return result
 
 
 def sample1(sess, generator_outputs, generator_input, generator_c_states, generator_h_states, hidden_size, vocabulary):
-    feed = feed_zero_generator_state(generator_c_states, generator_h_states, 1, hidden_size)
-    feed[generator_input] = np.random.uniform(size = (1, hidden_size), low = -1.0, high = 1.0)
+    feed = feed_random_generator_state(generator_c_states, generator_h_states, 1, hidden_size)
+    feed[generator_input] = np.zeros((1, hidden_size))
     outputs = sess.run(generator_outputs, feed_dict = feed)
     max_time, vocabulary_size = len(outputs), len(vocabulary)
     s = ""
@@ -125,10 +125,9 @@ def main():
 
         sess.run(tf.global_variables_initializer())
 
-        feed = feed_zero_generator_state(generator_c_states, generator_h_states, batch_size, hidden_size)
-
         for i in xrange(10000000):
-            feed[generator_input] = np.random.uniform(size = (batch_size, hidden_size), low = -1.0, high = 1.0)
+            feed = feed_random_generator_state(generator_c_states, generator_h_states, batch_size, hidden_size)
+            feed[generator_input] = np.zeros((batch_size, hidden_size))
             r = random.randint(0, data.shape[0] - 1 - batch_size)
             feed[discriminator_input] = data[r : r + batch_size]
             _, dl, gl = sess.run([generator_optimizer, discriminator_loss, generator_loss], feed_dict = feed)
