@@ -60,9 +60,9 @@ def sample1(sess, generator_outputs, generator_input, generator_c_states, genera
 
 def main():
     with tf.Session() as sess:
-        max_time = 16
+        max_time = 64
         data, vocabulary, codes = read_data(sys.argv[1], max_time)
-        batch_size, hidden_size, number_of_layers, vocabulary_size = 1024, 256, 1, len(vocabulary)
+        batch_size, hidden_size, number_of_layers, vocabulary_size = 8, 256, 2, len(vocabulary)
 
         with tf.device('/gpu:0'):
             def lstm_cell(k, prefix):
@@ -92,7 +92,7 @@ def main():
             discriminator_cell = tf.nn.rnn_cell.MultiRNNCell([lstm_cell(i, "discriminator_") for i in range(number_of_layers)])
             discriminator_w1 = tf.get_variable("discriminator_w1", (vocabulary_size, hidden_size), initializer = tf.random_normal_initializer(0.0, 1.0), dtype = tf.float64)
             discriminator_b1 = tf.get_variable("discriminator_b1", (hidden_size), initializer = tf.random_normal_initializer(0.0, 1.0), dtype = tf.float64)
-            discriminator_w2 = tf.get_variable("discriminator_w2", (2 * number_of_layers * hidden_size, 1), initializer = tf.random_normal_initializer(0.0, 1.0), dtype = tf.float64)
+            discriminator_w2 = tf.get_variable("discriminator_w2", (number_of_layers * hidden_size, 1), initializer = tf.random_normal_initializer(0.0, 1.0), dtype = tf.float64)
             discriminator_b2 = tf.get_variable("discriminator_b2", (1), initializer = tf.random_normal_initializer(0.0, 1.0), dtype = tf.float64)
             discriminator_real_state = discriminator_cell.zero_state(batch_size, tf.float64)
             discriminator_fake_state = discriminator_cell.zero_state(batch_size, tf.float64)
@@ -102,9 +102,9 @@ def main():
             discriminator_vars = discriminator_cell.trainable_variables + [discriminator_w1, discriminator_b1, discriminator_w2, discriminator_b2]
 
             def reshape_discriminator_state(state):
-                result = [state[i][j] for i in xrange(number_of_layers) for j in xrange(2)]
+                result = [state[i][0] for i in xrange(number_of_layers)]
                 result = tf.stack(result, axis = 1)
-                result = tf.reshape(result, [batch_size, 2 * number_of_layers * hidden_size])
+                result = tf.reshape(result, [batch_size, number_of_layers * hidden_size])
                 result = tf.add(tf.matmul(result, discriminator_w2), discriminator_b2)
                 return result
 
@@ -116,10 +116,12 @@ def main():
             generator_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits = discriminator_fake_state, labels = tf.ones_like(discriminator_fake_state)))
             discriminator_loss = real_loss + fake_loss
 
-            generator_optimizer = tf.train.AdamOptimizer(0.0001).minimize(generator_loss, var_list = generator_vars)
+            #generator_optimizer = tf.train.AdamOptimizer(0.0001).minimize(generator_loss, var_list = generator_vars)
             #discriminator_optimizer = tf.train.AdamOptimizer(0.0001).minimize(discriminator_loss, var_list = discriminator_vars)
-            #generator_optimizer = tf.train.GradientDescentOptimizer(0.01).minimize(generator_loss, var_list = generator_vars)
-            discriminator_optimizer = tf.train.GradientDescentOptimizer(0.001).minimize(discriminator_loss, var_list = discriminator_vars)
+            #generator_optimizer = tf.train.GradientDescentOptimizer(0.001).minimize(generator_loss, var_list = generator_vars)
+            #discriminator_optimizer = tf.train.GradientDescentOptimizer(0.001).minimize(discriminator_loss, var_list = discriminator_vars)
+            generator_optimizer = tf.train.AdadeltaOptimizer(0.001).minimize(generator_loss, var_list = generator_vars)
+            discriminator_optimizer = tf.train.AdadeltaOptimizer(0.001).minimize(discriminator_loss, var_list = discriminator_vars)
 
         sess.run(tf.global_variables_initializer())
 
@@ -130,7 +132,7 @@ def main():
             r = random.randint(0, data.shape[0] - 1 - batch_size)
             feed[discriminator_input] = data[r : r + batch_size]
             _, dl, gl = sess.run([generator_optimizer, discriminator_loss, generator_loss], feed_dict = feed)
-            if dl > 0.01:
+            if dl > 0.001:
                 sess.run(discriminator_optimizer, feed_dict = feed)
             print "%.5f\t%.5f" % (dl, gl)
             if i % 100 == 0:
