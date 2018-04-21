@@ -17,8 +17,9 @@ def iterate_files_in_dir(path, mask):
 
 
 def iterate_lib_ru():
-    files = list(iterate_files_in_dir("lib_ru/public_html/book", "*.txt"))
-    #files = list(iterate_files_in_dir("data", "all"))
+    #files = list(iterate_files_in_dir("lib_ru/public_html/book", "*.txt"))
+    files = list(iterate_files_in_dir("data", "all"))
+    print files
     n = len(files)
     for i in xrange(n):
         try:
@@ -190,8 +191,10 @@ def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_plac
             c += 1
             print "row: %.5f%%, col: %.5f%%, filled: %.5f%%, loss: %f" % (row_progress * 100.0, col_progress * 100.0, filled * 100.0, _l)
             sys.stdout.flush()
-        seed = seed_data[min(int(random.random() * len(seed_data)), len(seed_data) - 1)]
-        print make_sample(sess, x_placeholder, state_placeholder, output_operation, state_operation, lengths_placeholder, apply_zero_state, seed, max_time, max_sample_length)
+            seed = seed_data[min(int(random.random() * len(seed_data)), len(seed_data) - 1)]
+            print make_sample(sess, x_placeholder, state_placeholder, output_operation, state_operation, lengths_placeholder, apply_zero_state, seed, max_time, max_sample_length)
+        if c == 0:
+            break
         print "Loss: %.5f\tdiff with prev: %.5f\n" % (l / c, l / c - prev_loss)
         sys.stdout.flush()
         epoch += 1
@@ -203,7 +206,7 @@ def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_plac
 # do all stuff
 def main():
     # define params
-    max_time, batch_size, batch_size_1, state_size, learning_rate, books_to_process, books_to_process_1, book_length, not_clear_state_iterations, libru_epochs = 10, 500, 10000, 1024, 0.001, 10000, 100000, 1000, 2, 0
+    max_time, batch_size, batch_size_1, state_size, learning_rate, books_to_process, books_to_process_1, book_length, not_clear_state_iterations, libru_epochs = 64, 1000, 1000, 128, 0.001, 100, 1000, 64, 5, 5
     #max_time, batch_size, state_size, learning_rate, books_to_process, not_clear_state_iterations, libru_epochs = 10, 1, 128, 0.001, 100, 3, 7
     vocabulary_size = len(all_syms) + 1
 
@@ -279,7 +282,7 @@ def main():
             saver.save(sess, "dumps/libru", global_step = k)
 
         # read and convert bot data
-        source_data = list(iterate_messages("3be3d3ffd5e6e44608b948109849192b.log"))
+        source_data = list(iterate_messages("data/3be3d3ffd5e6e44608b948109849192b.log"))
         data = transform_data_to_sliding_windows(source_data, 5)
         batch_size = len(data)
         zero_state = sess.run(gru.zero_state(batch_size, tf.float32))

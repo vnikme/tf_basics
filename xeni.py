@@ -62,7 +62,7 @@ def sample1(sess, generator_outputs, generator_input, generator_c_states, genera
 
 def main():
     with tf.Session() as sess:
-        max_time = 32
+        max_time = 64
         data, vocabulary, codes = read_data(sys.argv[1], max_time)
         batch_size, hidden_size, number_of_layers, vocabulary_size = 8, 256, 1, len(vocabulary)
 
@@ -70,7 +70,10 @@ def main():
             def basic_cell(k, prefix):
                 return tf.nn.rnn_cell.LSTMCell(hidden_size, name = prefix + str(k))
 
-            encoder_input = tf.placeholder(tf.int32, (None, max_time))
+            encoder_inputs = tf.placeholder(tf.int32, (None, max_time))
+            encoder_targets = tf.placeholder(tf.int32, (None, max_time))
+
+
             generator_c_states, generator_h_states, generator_state_input = [], [], []
             for i in xrange(number_of_layers):
                 generator_c_states.append(tf.placeholder(tf.float64, [None, hidden_size]))
