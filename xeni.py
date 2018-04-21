@@ -66,11 +66,11 @@ def main():
         data, vocabulary, codes = read_data(sys.argv[1], max_time)
         batch_size, hidden_size, number_of_layers, vocabulary_size = 8, 256, 1, len(vocabulary)
 
-        with tf.device('/gpu:0'):
-            def lstm_cell(k, prefix):
+        with tf.device('/cpu:0'):
+            def basic_cell(k, prefix):
                 return tf.nn.rnn_cell.LSTMCell(hidden_size, name = prefix + str(k))
 
-            generator_input = tf.placeholder(tf.float64, (None, hidden_size))
+            encoder_input = tf.placeholder(tf.int32, (None, max_time))
             generator_c_states, generator_h_states, generator_state_input = [], [], []
             for i in xrange(number_of_layers):
                 generator_c_states.append(tf.placeholder(tf.float64, [None, hidden_size]))

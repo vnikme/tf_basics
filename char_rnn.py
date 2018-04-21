@@ -224,7 +224,7 @@ def main():
 
     # define loss and optimizer
     ohy = tf.one_hot(y, vocabulary_size, on_value = 1.0)
-    loss = tf.reduce_mean(tf.mul(tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(output, ohy), 2), mask)) / vocabulary_size
+    loss = tf.reduce_mean(tf.multiply(tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(logits = output, labels = ohy), 2), mask)) / vocabulary_size
     optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(loss)
 
     # renorm output logits for sampling
@@ -250,7 +250,7 @@ def main():
     else:
         # training mode
 
-        saver.restore(sess, "dumps/libru-1")
+        #saver.restore(sess, "dumps/libru-1")
 
         # pre-train on lib.ru
         for k in xrange(libru_epochs):
