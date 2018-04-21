@@ -9,7 +9,7 @@ import numpy as np
 STOP = 0
 
 def read_data(path, max_length):
-    data = []
+    data, targets = [], []
     for line in open(path, "rt"):
         js = json.loads(base64.b64decode(line))
         if "correctedText" not in js:
@@ -30,49 +30,119 @@ def read_data(path, max_length):
         while len(idx) < max_length:
             idx.append(STOP)
         data[i] = idx
+        targets.append(idx[1:] + [STOP])
     print(len(data))
-    return np.array(data), chars, codes
+    return np.array(data), np.array(targets), chars, codes
 
 
-def feed_random_generator_state(generator_c_states, generator_h_states, batch_size, hidden_size):
+def feed_zero_encoder_state(encoder_state_inputs, batch_size, hidden_size):
     result = {}
-    for c in generator_c_states:
-        result[c] = np.random.uniform(size = (1, hidden_size), low = -1.0, high = 1.0)
-    for h in generator_h_states:
-        result[h] = np.zeros((batch_size, hidden_size))
+    for c in encoder_state_inputs:
+        result[c] = np.zeros((batch_size, hidden_size))
     return result
 
 
-def sample1(sess, generator_outputs, generator_input, generator_c_states, generator_h_states, hidden_size, vocabulary):
-    feed = feed_random_generator_state(generator_c_states, generator_h_states, 1, hidden_size)
-    feed[generator_input] = np.zeros((1, hidden_size))
-    outputs = sess.run(generator_outputs, feed_dict = feed)
-    max_time, vocabulary_size = len(outputs), len(vocabulary)
-    s = ""
-    for i in xrange(max_time):
-        m = STOP
-        for j in xrange(1, vocabulary_size):
-            if outputs[i][0][j] > outputs[i][0][m]:
-                m = j
-        if m == STOP:
+def choose_random(distr):
+    #print " ".join(map(lambda t: "%.2f" % t, distr))
+    cs = np.cumsum(distr)
+    s = np.sum(distr)
+    k = int(np.searchsorted(cs, np.random.rand(1) * s))
+    return min(max(k, 0), len(distr) - 1)
+
+
+def sample1(sess, encoder_one_output_projected, encoder_one_state, encoder_inputs, encoder_state_inputs, hidden_size, max_time, max_len, vocabulary):
+    feed = feed_zero_encoder_state(encoder_state_inputs, 1, hidden_size)
+    c = random.randint(1, len(vocabulary) - 1)
+    result = vocabulary[c]
+    for i in xrange(max_len):
+        feed[encoder_inputs] = [[c] + [STOP for _ in xrange(max_time - 1)]]
+        output, state = sess.run([encoder_one_output_projected, encoder_one_state], feed_dict = feed)
+        feed = {}
+        for j in xrange(len(encoder_state_inputs)):
+            feed[encoder_state_inputs[j]] = state[j]
+        c = choose_random(output[0])
+        if c == STOP:
             break
-        s += vocabulary[m]
-    return s
+        result += vocabulary[c]
+    return result
 
 
 def main():
     with tf.Session() as sess:
         max_time = 64
-        data, vocabulary, codes = read_data(sys.argv[1], max_time)
-        batch_size, hidden_size, number_of_layers, vocabulary_size = 8, 256, 1, len(vocabulary)
+        data, targets, vocabulary, codes = read_data(sys.argv[1], max_time)
+        batch_size, hidden_size, number_of_layers, vocabulary_size = 8, 256, 2, len(vocabulary)
 
         with tf.device('/cpu:0'):
             def basic_cell(k, prefix):
-                return tf.nn.rnn_cell.LSTMCell(hidden_size, name = prefix + str(k))
+                return tf.nn.rnn_cell.GRUCell(hidden_size, name = prefix + str(k))
 
             encoder_inputs = tf.placeholder(tf.int32, (None, max_time))
+            encoder_inputs_oh = tf.transpose(tf.one_hot(encoder_inputs, vocabulary_size, tf.to_double(1.0), dtype = tf.float64, axis = -1), [1, 0, 2])
+            #print encoder_inputs.shape, encoder_inputs_oh.shape
+            encoder_state_inputs, encoder_state_input = [], []
+            for i in xrange(number_of_layers):
+                encoder_state_inputs.append(tf.placeholder(tf.float64, [None, hidden_size]))
+                encoder_state_input.append(encoder_state_inputs)
+            encoder_state_input = tuple(encoder_state_inputs)
+ 
             encoder_targets = tf.placeholder(tf.int32, (None, max_time))
+            encoder_targets_oh = tf.transpose(tf.one_hot(encoder_targets, vocabulary_size, tf.to_double(1.0), dtype = tf.float64, axis = -1), [1, 0, 2])
 
+            encoder_base_cells = [basic_cell(i, "encoder_") for i in range(number_of_layers)]
+            encoder_cell = tf.nn.rnn_cell.MultiRNNCell(encoder_base_cells)
+
+            encoder_w = tf.get_variable("encoder_w", (hidden_size, vocabulary_size), initializer = tf.random_normal_initializer(0.0, 1.0), dtype = tf.float64)
+            encoder_b = tf.get_variable("encoder_b", (vocabulary_size), initializer = tf.random_normal_initializer(0.0, 1.0), dtype = tf.float64) 
+
+            state, encoder_loss, encoder_one_output, encoder_one_state = encoder_state_input, None, None, None
+            for i in xrange(max_time):
+                output, state = encoder_cell(encoder_inputs_oh[i], state)
+                output_projected = tf.add(tf.matmul(output, encoder_w), encoder_b)
+                loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits = output_projected, labels = encoder_targets_oh[i])) / max_time
+                if i == 0:
+                    encoder_one_output_projected = tf.nn.softmax(output_projected)
+                    encoder_one_output, encoder_one_state = output, state
+                    encoder_loss = loss
+                else:
+                    encoder_loss += loss
+            encoder_final_state = tf.concat(state, axis = 1)
+
+            encoder_optimizer = tf.train.AdamOptimizer(0.0001).minimize(encoder_loss)
+
+            sess.run(tf.global_variables_initializer())
+
+            feed = feed_zero_encoder_state(encoder_state_inputs, batch_size, hidden_size)
+            for i in xrange(10000000):
+                r = random.randint(0, data.shape[0] - batch_size)
+                feed[encoder_inputs] = data[r : r + batch_size]
+                feed[encoder_targets] = data[r : r + batch_size]
+                _, l = sess.run([encoder_optimizer, encoder_loss], feed_dict = feed)
+                if i % 100 == 0:
+                    print "%.5f" % (l)
+                    print sample1(sess, encoder_one_output_projected, encoder_one_state, encoder_inputs, encoder_state_inputs, hidden_size, max_time, 100, vocabulary).encode("utf-8")
+                    print
+                sys.stdout.flush()
+            exit(1)
+
+
+
+
+
+
+
+
+
+            generator_outputs, generator_one_output, generator_one_state = [], None, None
+            for i in xrange(max_time):
+                output, state = generator_cell(output, state)
+                if i == 0:
+                    generator_one_output, generator_one_state = output, state
+                generator_outputs.append(tf.add(tf.matmul(output, generator_w), generator_b))
+            generator_vars = generator_cell.trainable_variables + [generator_w, generator_b]
+
+
+            exit(1)
 
             generator_c_states, generator_h_states, generator_state_input = [], [], []
             for i in xrange(number_of_layers):
