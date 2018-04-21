@@ -193,6 +193,7 @@ def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_plac
             sys.stdout.flush()
             seed = seed_data[min(int(random.random() * len(seed_data)), len(seed_data) - 1)]
             print make_sample(sess, x_placeholder, state_placeholder, output_operation, state_operation, lengths_placeholder, apply_zero_state, seed, max_time, max_sample_length)
+            sys.stdout.flush()
         if c == 0:
             break
         print "Loss: %.5f\tdiff with prev: %.5f\n" % (l / c, l / c - prev_loss)
@@ -206,7 +207,7 @@ def do_train(sess, x_placeholder, y_placeholder, state_placeholder, lengths_plac
 # do all stuff
 def main():
     # define params
-    max_time, batch_size, batch_size_1, state_size, learning_rate, books_to_process, books_to_process_1, book_length, not_clear_state_iterations, libru_epochs = 64, 1000, 1000, 128, 0.001, 100, 1000, 64, 5, 5
+    max_time, batch_size, batch_size_1, state_size, learning_rate, books_to_process, books_to_process_1, book_length, not_clear_state_iterations, libru_epochs = 64, 1000, 1000, 512, 0.001, 1000, 1000, 64, 100, 100
     #max_time, batch_size, state_size, learning_rate, books_to_process, not_clear_state_iterations, libru_epochs = 10, 1, 128, 0.001, 100, 3, 7
     vocabulary_size = len(all_syms) + 1
 
@@ -277,7 +278,7 @@ def main():
                          data, [[all_syms.index(ch) for ch in "Однажды".decode("utf-8")], [all_syms.index(ch) for ch in "Once".decode("utf-8")]],
                          batch_size if k >= not_clear_state_iterations else batch_size_1, max_time,
                          k < not_clear_state_iterations, 1000,
-                         lambda epoch, epoch_loss: epoch >= 1)
+                         lambda epoch, epoch_loss: epoch >= 5)
                     data = []
             saver.save(sess, "dumps/libru", global_step = k)
 
