@@ -79,10 +79,9 @@ def main():
         encoder_inputs = tf.placeholder(tf.int32, (None, max_time))
         encoder_inputs_oh = tf.transpose(tf.one_hot(encoder_inputs, vocabulary_size, tf.to_double(1.0), dtype = tf.float64, axis = -1), [1, 0, 2])
         #print encoder_inputs.shape, encoder_inputs_oh.shape
-        encoder_state_inputs, encoder_state_input = [], []
+        encoder_state_inputs = []
         for i in xrange(number_of_layers):
             encoder_state_inputs.append(tf.placeholder(tf.float64, [None, hidden_size]))
-            encoder_state_input.append(encoder_state_inputs)
         encoder_state_input = tuple(encoder_state_inputs)
 
         encoder_targets = tf.placeholder(tf.int32, (None, max_time))
